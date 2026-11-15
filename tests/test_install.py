@@ -75,7 +75,7 @@ def test_smoke_trusts_only_the_given_certificate(server, samples):
 
 def test_this_version_can_be_released():
     assert release.problems(f"v{__version__}") == []
-    assert release.notes(__version__).startswith("### Added")
+    assert release.notes(__version__).startswith(("### Added", "### Changed", "### Fixed"))  # a fix-only release has no Added
 
 
 def test_release_refuses_another_version():

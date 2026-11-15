@@ -2,6 +2,12 @@
 
 All changes made on the same day are one minor version.
 
+## 0.7.2 (2026-11-15)
+
+### Fixed
+
+- A release tag pushed again started a second release run beside the first. Both pushed the image and raced to create the release. Runs for one tag now wait in turn.
+
 ## 0.7.1 (2026-11-15)
 
 ### Added

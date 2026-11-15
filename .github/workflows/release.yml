@@ -3,6 +3,11 @@ on:
   push:
     tags: ["v*"]
 
+# A tag pushed again starts a second run. They would push the same image and race to create the release, so they wait in turn.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
