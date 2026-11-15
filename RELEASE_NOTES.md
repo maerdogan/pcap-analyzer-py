@@ -2,6 +2,29 @@
 
 All changes made on the same day are one minor version.
 
+## 0.7.5 (2026-11-15)
+
+### Added
+
+- A connection page lists every packet of the connection in order, as Wireshark's packet list does: time, direction, flags, sequence and acknowledgment numbers, length, window, protocol and information, with retransmissions, lost segments and other TCP marks. It shows up to 5,000 packets.
+- Follow HTTP stream: each request and its response on a connection in order, with headers and the start of each body. It comes from the analysis, so HTTP/2 and HTTPS decrypted with a key log work too, and secrets stay masked. Follow TCP stream has Text, Hex and HTTP views.
+- The Connections table shows the connection number, start time, server name, packets and bytes of every TCP connection.
+
+### Changed
+
+- `kubernetes/vks` serves the app at `pcap-analyzer.internal`, a name not tied to the platform's own zone. `secrets.sh` makes the certificate again for a new name, and its first login is `admin` / `admin`, which the app asks to change.
+
+## 0.7.4 (2026-11-15)
+
+### Added
+
+- With no password set, or with the password `admin`, the first sign-in is `admin` / `admin`, and every page asks for a new password before anything else. The new password needs at least 10 characters and cannot be `admin` or the user name. It is kept in `.admin-password.json` in the data folder, so it stays after a restart and wins over the settings.
+- Preferences has a link to change the password at any time.
+
+### Changed
+
+- The app starts without `PCAP_ANALYZER_ADMIN_PASSWORD` or `PCAP_ANALYZER_ADMIN_PASSWORD_HASH`. Before, it refused to start.
+
 ## 0.7.3 (2026-11-15)
 
 ### Added

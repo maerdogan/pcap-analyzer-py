@@ -26,6 +26,7 @@ from .jobs import Jobs, QueueFull
 HERE = Path(__file__).parent
 COOKIE = "pcap_session"
 OPEN_PATHS = ("/login", "/language", "/healthz", "/static/")
+CHANGE_PATHS = ("/password", "/logout")  # the only pages open until the first password is changed
 CHUNK = 1 << 20
 KEY_LIMIT = CHUNK
 KEYLOG_LIMIT = 512 * CHUNK  # NetScaler writes the keys of every session it serves, about 60 MB in four busy minutes
@@ -137,7 +138,7 @@ def _purge_loop(settings, stop):
 
 def create_app(settings=None, https=False):
     settings = settings or Settings()
-    auth = Auth(settings.admin_user, settings.admin_password, settings.admin_password_hash)
+    auth = Auth(settings.admin_user, settings.admin_password, settings.admin_password_hash, settings.workdir / ".admin-password.json")
     jobs = Jobs(settings)
     safety_headers = {"Content-Security-Policy": CSP, "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
     if https:
@@ -224,6 +225,12 @@ def create_app(settings=None, https=False):
             if request.headers.get("hx-request"):
                 return Response(status_code=204, headers={"HX-Redirect": "/login"})
             return RedirectResponse("/login", 303)
+        if auth.must_change and not path.startswith(OPEN_PATHS + CHANGE_PATHS):
+            if path.startswith("/api/"):
+                return JSONResponse({"error": knowledge.t("Change the first password before you go on.")}, 403)
+            if request.headers.get("hx-request"):
+                return Response(status_code=204, headers={"HX-Redirect": "/password"})
+            return RedirectResponse("/password", 303)
         return None
 
     @app.middleware("http")
@@ -270,9 +277,22 @@ def create_app(settings=None, https=False):
             log(request, "login_failed", username)
             return templates.TemplateResponse(request, "login.html", dict(error=knowledge.t("The user name or password is wrong.")), status_code=401)
         log(request, "login")
-        resp = RedirectResponse("/", 303)
+        resp = RedirectResponse("/password" if auth.must_change else "/", 303)
         resp.set_cookie(COOKIE, token, httponly=True, samesite="strict", secure=https, max_age=12 * 3600)
         return resp
+
+    @app.get("/password", response_class=HTMLResponse)
+    def password_form(request: Request):
+        return page(request, "password.html", error=None, first=auth.must_change)
+
+    @app.post("/password", response_class=HTMLResponse)
+    def change_password(request: Request, current: str = Form(""), new: str = Form(""), again: str = Form("")):
+        first = auth.must_change
+        problem = auth.change_password(current, new, again)
+        if problem:
+            return templates.TemplateResponse(request, "password.html", dict(error=knowledge.t(problem), first=first), status_code=400)
+        log(request, "password_changed")
+        return RedirectResponse("/", 303)
 
     @app.post("/logout")
     def logout(request: Request):
@@ -705,11 +725,25 @@ def create_app(settings=None, https=False):
     @app.get("/a/{aid}/conn/{stream}/follow", response_class=HTMLResponse)
     def follow(request: Request, aid: str, stream: int, mode: str = "ascii"):
         a = opened(aid)
-        if mode not in ("ascii", "hex"):
+        if mode not in ("ascii", "hex", "http"):
             _bad(knowledge.t("This view does not exist."), 404)
-        log(request, "follow", f"{aid} connection {stream}")
-        f = packet_view(lambda: stats.follow(a, settings, stream, mode))
-        return page(request, "follow.html", f=f, stream=stream, **capture_ctx(a))
+        with a.connect() as db:
+            if not reports.one(db, "SELECT stream FROM tcp_connections WHERE stream = ?", [stream]):
+                _bad(knowledge.t("This connection does not exist."), 404)
+            requests = reports.one(db, "SELECT count(*) AS n FROM http_transactions WHERE stream = ?", [stream])["n"]
+            exchanges = stats.follow_http(db, stream) if mode == "http" else None
+        log(request, "follow", f"{aid} connection {stream} {mode}")
+        f = dict(mode="http", chunks=[]) if mode == "http" else packet_view(lambda: stats.follow(a, settings, stream, mode))
+        return page(request, "follow.html", f=f, exchanges=exchanges, requests=requests, stream=stream, **capture_ctx(a))
+
+    @app.get("/a/{aid}/conn/{stream}/packets", response_class=HTMLResponse)
+    def connection_packets(request: Request, aid: str, stream: int):
+        a = opened(aid)
+        try:
+            found = packet_view(lambda: stats.packets(a, settings, stream))
+        except HTTPException as e:
+            return page(request, "_conn_packets.html", a=a, error=e.detail)
+        return page(request, "_conn_packets.html", a=a, p=found, stream=stream)
 
     @app.get("/a/{aid}/objects", response_class=HTMLResponse)
     def objects(request: Request, aid: str):

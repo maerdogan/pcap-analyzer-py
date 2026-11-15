@@ -9,10 +9,10 @@ metadata:
 spec:
   ingressClassName: nginx-dump-analyzers
   tls:
-    - hosts: [pcap-analyzer.ubuntu.local]
+    - hosts: [pcap-analyzer.internal]
       secretName: pcap-analyzer-tls
   rules:
-    - host: pcap-analyzer.ubuntu.local
+    - host: pcap-analyzer.internal
       http:
         paths:
           - path: /

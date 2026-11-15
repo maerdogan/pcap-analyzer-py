@@ -21,4 +21,17 @@
  "Rejected",
  "Cancelled",
  "Not answered",
- "Other"]
+ "Other",
+ "The current password is wrong.",
+ "The new passwords do not match.",
+ "The new password must have at least 10 characters.",
+ "Choose a password other than the current one, admin or the user name.",
+ "retransmission",
+ "fast retransmission",
+ "out of order",
+ "duplicate ACK",
+ "previous segment not captured",
+ "ACKed unseen segment",
+ "zero window",
+ "window full",
+ "keep-alive"]

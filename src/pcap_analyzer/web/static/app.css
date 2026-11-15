@@ -357,3 +357,10 @@ legend { font-weight: 650; padding: 0 .3rem; }
 form.inline { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
 form.inline label.wide { flex: 1; min-width: 220px; display: grid; gap: 4px; }
 .pad { padding: 0 16px; }
+
+/* Packet list of one connection */
+.packets td { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+.packets td:last-child { white-space: normal; min-width: 280px; }
+.packets tr.from-client td:first-child { box-shadow: inset 3px 0 #c8324a; }
+.packets tr.from-server td:first-child { box-shadow: inset 3px 0 #3347ee; }
+.packets tr.marked { background: #fff6e5; }

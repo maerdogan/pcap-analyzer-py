@@ -24,9 +24,13 @@
     }),
     connections: (base) => ({
       columnDefs: [
+        num("stream", "#", { width: 80, filter: "agNumberColumnFilter" }),
+        num("start_time", t("Start"), { width: 110, valueFormatter: (p) => (p.value ? new Date(p.value * 1000).toLocaleTimeString() : "–") }),
         { headerName: t("Client"), width: 175, filter: true, valueGetter: (p) => p.data.client_ip + ":" + p.data.client_port },
         { headerName: t("Server"), width: 175, filter: true, valueGetter: (p) => p.data.server_ip + ":" + p.data.server_port },
         { field: "kind", headerName: t("Type"), width: 95, filter: true },
+        { field: "sni", headerName: t("Server name"), width: 170, filter: true },
+        num("packets", t("Packets"), { width: 100 }), size("bytes", t("Bytes")),
         num("requests", t("Requests"), { width: 100 }), time("avg_total", t("Average")), time("max_total", t("Slowest")), time("duration", t("Open for")),
         time("rtt_server", t("Round trip")), num("retransmissions", t("Retrans."), { width: 95 }), { field: "close_type", headerName: t("Closed"), width: 90 },
       ],

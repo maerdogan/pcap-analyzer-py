@@ -7,20 +7,22 @@ NS=${NS:-dump-analyzers}
 ENV_FILE=$SECRETS/pcap-analyzer-admin.env
 CRT=$SECRETS/pcap-analyzer-tls.crt
 KEY=$SECRETS/pcap-analyzer-tls.key
+HOST=${HOST:-pcap-analyzer.internal}  # keep in step with ingress.yaml
 PY=${PY:-python3}
 umask 077
 mkdir -p "$SECRETS"
 
 if [ ! -f "$ENV_FILE" ]; then
-  PASSWORD=$(openssl rand -base64 18 | tr -d '/+=')
-  printf 'PCAP_ANALYZER_ADMIN_USER=admin\nPCAP_ANALYZER_ADMIN_PASSWORD=%s\n' "$PASSWORD" > "$ENV_FILE"
+  # The app asks for a new password at the first sign-in with admin, and keeps it in its data volume.
+  printf 'PCAP_ANALYZER_ADMIN_USER=admin\nPCAP_ANALYZER_ADMIN_PASSWORD=admin\n' > "$ENV_FILE"
 fi
 # shellcheck disable=SC1090
 source "$ENV_FILE"
 
-if [ ! -f "$CRT" ]; then
-  openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj /CN=pcap-analyzer.ubuntu.local \
-    -addext "subjectAltName=DNS:pcap-analyzer.ubuntu.local,DNS:pcap-analyzer-gw.ubuntu.local" \
+# A certificate made for another name is made again.
+if [ ! -f "$CRT" ] || ! openssl x509 -in "$CRT" -noout -ext subjectAltName 2>/dev/null | grep -q "DNS:$HOST\b"; then
+  openssl req -x509 -newkey rsa:2048 -nodes -days 825 -subj "/CN=$HOST" \
+    -addext "subjectAltName=DNS:$HOST,DNS:${HOST/pcap-analyzer/pcap-analyzer-gw}" \
     -keyout "$KEY" -out "$CRT" 2>/dev/null
 fi
 

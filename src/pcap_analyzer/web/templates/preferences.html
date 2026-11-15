@@ -15,6 +15,10 @@
   </form>
 </section>
 <section class="panel">
+  <h2>{{ _("Password") }}</h2>
+  <a class="button" href="/password">{{ _("Change the password") }}</a>
+</section>
+<section class="panel">
   <h2>{{ _("API tokens") }}</h2>
   {% if new_token %}<p class="warn">{{ _("Copy this token now. It is not shown again.") }}</p><pre class="command">{{ new_token }}</pre>{% endif %}
   {% if tokens %}<table><thead><tr><th>{{ _("Name") }}</th><th>{{ _("Created") }}</th><th></th></tr></thead><tbody>

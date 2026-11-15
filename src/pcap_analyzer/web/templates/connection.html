@@ -14,6 +14,7 @@
   </div>
   {% if m.capture_kept %}<div class="actions">
     <a class="button" href="/a/{{ a.id }}/conn/{{ c.stream }}/follow">{{ _("Follow TCP stream") }}</a>
+    {% if d.total %}<a class="button" href="/a/{{ a.id }}/conn/{{ c.stream }}/follow?mode=http">{{ _("Follow HTTP stream") }}</a>{% endif %}
     <a class="button" href="/a/{{ a.id }}/flow?stream={{ c.stream }}">{{ _("Flow graph") }}</a>
     <a class="button" href="/export/{{ a.id }}/conn/{{ c.stream }}.pcapng">{{ _("Download this connection as PCAP") }}</a></div>{% endif %}
   </div>
@@ -42,6 +43,11 @@
 </section>
 {% endif %}
 {% if m.capture_kept %}
+<section class="panel flush">
+  <h2>{{ _("All packets") }}</h2>
+  <p class="muted pad">{{ _("Every packet of this connection in order, as Wireshark's packet list shows it.") }}</p>
+  <div id="conn-packets" hx-get="/a/{{ a.id }}/conn/{{ c.stream }}/packets" hx-trigger="load" hx-swap="innerHTML"><p class="empty">{{ _("Reading the packets again. A large capture can take a few minutes the first time.") }}</p></div>
+</section>
 <section class="panel">
   <div class="section-head">
     <h2>{{ _("TCP graphs") }}</h2>

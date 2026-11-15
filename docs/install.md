@@ -13,21 +13,21 @@ Each [release](https://github.com/maerdogan/ai-pcap-analyzer-py-fastapi-htmx/rel
 From the registry:
 
 ```bash
-docker pull ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.7.3
-docker tag ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.7.3 pcap-analyzer:0.7.3
+docker pull ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.7.5
+docker tag ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.7.5 pcap-analyzer:0.7.5
 ```
 
 From the release files, copied to the host:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS
-gunzip -c pcap-analyzer-0.7.3-image-amd64.tar.gz | docker load
+gunzip -c pcap-analyzer-0.7.5-image-amd64.tar.gz | docker load
 ```
 
 Or build it yourself:
 
 ```bash
-docker build -f docker/Containerfile -t pcap-analyzer:0.7.3 .
+docker build -f docker/Containerfile -t pcap-analyzer:0.7.5 .
 ```
 
 Then create the settings and a password hash:
@@ -35,7 +35,7 @@ Then create the settings and a password hash:
 ```bash
 cd docker
 cp .env.example .env
-docker run --rm -it pcap-analyzer:0.7.3 pcap-analyzer hash-password
+docker run --rm -it pcap-analyzer:0.7.5 pcap-analyzer hash-password
 ```
 
 Put the hash in `.env` in single quotes, as `PCAP_ANALYZER_ADMIN_PASSWORD_HASH='...'`, and start it:
@@ -53,7 +53,7 @@ Compose limits the app to 2 CPUs, 4 GiB of memory, 256 processes and 3 GiB in `/
 Push the image to your internal registry, then set the image and host names in `kubernetes/generic/`. Create the password hash on any machine with the image:
 
 ```bash
-docker run --rm -it pcap-analyzer:0.7.3 pcap-analyzer hash-password
+docker run --rm -it pcap-analyzer:0.7.5 pcap-analyzer hash-password
 ```
 
 ```bash
@@ -140,7 +140,7 @@ With a self-signed certificate, add `--cafile cert.pem`. On a server with only `
 |---|---|---|
 | `PCAP_ANALYZER_ADMIN_USER` | `admin` | Login name |
 | `PCAP_ANALYZER_ADMIN_PASSWORD_HASH` | | Password hash, preferred |
-| `PCAP_ANALYZER_ADMIN_PASSWORD` | | Plain password, as the alternative |
+| `PCAP_ANALYZER_ADMIN_PASSWORD` | | Plain password, as the alternative. With neither set, or with the password `admin`, the first sign-in is `admin` / `admin` and every page asks for a new password first. The new password is kept in `.admin-password.json` in the data folder and wins over these settings; delete that file to go back to them |
 | `PCAP_ANALYZER_BEHIND_PROXY` | `0` | `1` when an HTTPS proxy is in front |
 | `PCAP_ANALYZER_HSTS_S` | `31536000` | How long browsers must use HTTPS, sent whenever HTTPS is on. `0` tells them to stop. Applies to the host name on every port |
 | `PCAP_ANALYZER_REQUEST_ID_HEADER` | `x-request-id` | Header that follows a request through proxies. `traceparent` is read when it is absent |

@@ -523,3 +523,60 @@ def object_path(a, name):
         return None
     path = a.dir / "objects" / name
     return path if path.is_file() else None
+
+
+# --- Every packet of one connection, in order ---
+
+PACKET_ROWS = 5000
+PACKET_FIELDS = ["frame.number", "frame.time_epoch", "ip.src", "ipv6.src", "tcp.srcport", "tcp.flags.str", "tcp.seq", "tcp.ack", "tcp.len",
+                 "tcp.window_size", "_ws.col.protocol", "_ws.col.info", "tcp.analysis.retransmission", "tcp.analysis.fast_retransmission",
+                 "tcp.analysis.out_of_order", "tcp.analysis.duplicate_ack", "tcp.analysis.lost_segment", "tcp.analysis.ack_lost_segment",
+                 "tcp.analysis.zero_window", "tcp.analysis.window_full", "tcp.analysis.keep_alive"]
+PACKET_MARKS = [("tcp.analysis.retransmission", "retransmission"), ("tcp.analysis.fast_retransmission", "fast retransmission"),
+                ("tcp.analysis.out_of_order", "out of order"), ("tcp.analysis.duplicate_ack", "duplicate ACK"),
+                ("tcp.analysis.lost_segment", "previous segment not captured"), ("tcp.analysis.ack_lost_segment", "ACKed unseen segment"),
+                ("tcp.analysis.zero_window", "zero window"), ("tcp.analysis.window_full", "window full"), ("tcp.analysis.keep_alive", "keep-alive")]
+
+
+def packets(a, settings, stream):
+    """Every packet of one TCP connection in capture order, as Wireshark's packet list shows it, up to PACKET_ROWS."""
+    def make():
+        src = Source(a, settings)
+        part, number = src.stream_part(stream)
+        rows, client = [], None
+        for p in src.fields(PACKET_FIELDS, f"tcp.stream == {int(number)}", part, max_lines=PACKET_ROWS + 1):
+            t = _num(p["frame.time_epoch"])
+            if t is None:
+                continue
+            side = f"{_last(p['ip.src']) or _last(p['ipv6.src'])}:{p['tcp.srcport']}"
+            client = client or side
+            rows.append(dict(frame=src.frame(part, int(p["frame.number"])), t=t, from_client=side == client, flags=(p["tcp.flags.str"] or "").replace("·", "").strip(),
+                             seq=_num(p["tcp.seq"], int), ack=_num(p["tcp.ack"], int), len=_num(p["tcp.len"], int) or 0, win=_num(p["tcp.window_size"], int),
+                             protocol=p["_ws.col.protocol"], info=privacy.mask_uri(p["_ws.col.info"] or "")[:300],
+                             marks=[label for name, label in PACKET_MARKS if p.get(name)]))
+        cut = len(rows) > PACKET_ROWS
+        rows = rows[:PACKET_ROWS]
+        start = rows[0]["t"] if rows else 0
+        for r in rows:
+            r["t"] = r["t"] - start
+        return dict(rows=rows, cut=cut, limit=PACKET_ROWS)
+    return cached(a, f"packets-{int(stream)}", make)
+
+
+# --- Follow HTTP stream, from the requests the analysis kept ---
+
+def follow_http(db, stream):
+    """The requests and responses of one connection in order, with their headers and the start of their bodies.
+    They come from the analysis, so a capture decrypted with a key log shows them too, and secrets stay masked."""
+    out = []
+    for t in db.execute("""SELECT id, h2_stream, method, uri, host, http_version, status, phrase, req_headers, resp_headers, req_body, resp_body,
+            req_start, resp_start, resp_end, total, truncated, answered FROM http_transactions WHERE stream = ? ORDER BY req_start, id""", [stream]).fetchall():
+        (tid, h2, method, uri, host, version, status, phrase, req_h, resp_h, req_b, resp_b, req_start, resp_start, resp_end, total, truncated, answered) = t
+        h1 = not (version or "").startswith("HTTP/2")
+        request = (f"{method} {uri} {version or 'HTTP/1.1'}\n" if h1 else "") + (req_h or "") + (f"\n\n{req_b}" if req_b else "")
+        response = None
+        if answered:
+            response = (f"{version or 'HTTP/1.1'} {status} {phrase or ''}".rstrip() + "\n" if h1 else "") + (resp_h or "") + (f"\n\n{resp_b}" if resp_b else "")
+        out.append(dict(id=tid, h2_stream=h2, start=req_start, total=total, status=status, request=request.strip(), response=response.strip() if response else None,
+                        truncated=bool(truncated), host=host))
+    return out

@@ -51,9 +51,51 @@ def upload(client, path, extra_files=None, **form):
     raise AssertionError("analysis did not finish")
 
 
-def test_needs_a_password(settings):
-    with pytest.raises(ValueError):
-        create_app(settings)
+def _first_login(settings, **kw):
+    for k, v in kw.items():
+        setattr(settings, k, v)
+    c = TestClient(create_app(settings), follow_redirects=False, base_url="https://testserver")
+    r = c.post("/login", data={"username": "admin", "password": "admin"})
+    return c, r
+
+
+@pytest.mark.parametrize("configured", [{}, {"admin_password": "admin"}, {"admin_password_hash": hash_password("admin")}])
+def test_first_sign_in_is_admin_admin_and_must_change(settings, configured):
+    c, r = _first_login(settings, **configured)
+    with c:
+        assert r.status_code == 303 and r.headers["location"] == "/password"
+        for path in ("/", "/preferences", "/compare", "/a/0123456789abcdef0123/inspect"):
+            assert c.get(path).headers.get("location") == "/password", path
+        assert c.get("/", headers={"HX-Request": "true"}).headers["HX-Redirect"] == "/password"
+        page = c.get("/password")
+        assert page.status_code == 200 and "first sign-in with the default password" in page.text
+        token = re.search(r'name="csrf_token" value="(\w+)"', page.text)[1]
+        bad = {"current": "admin", "new": "short", "again": "short", "csrf_token": token}
+        assert "at least 10 characters" in c.post("/password", data=bad).text
+        assert "do not match" in c.post("/password", data={**bad, "new": "a-long-new-pass-1", "again": "other-long-pass-2"}).text
+        assert "current password is wrong" in c.post("/password", data={**bad, "current": "nope", "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"}).text
+        assert c.post("/password", data={**bad, "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"}).headers["location"] == "/"
+        assert c.get("/").status_code == 200
+        same = {**bad, "current": "a-long-new-pass-1", "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"}
+        assert "other than" in c.post("/password", data=same).text and "first sign-in" not in c.get("/password").text
+    stored = settings.workdir / ".admin-password.json"
+    assert stored.stat().st_mode & 0o777 == 0o600
+    with TestClient(create_app(settings), follow_redirects=False, base_url="https://testserver") as again:  # a restart keeps the new password
+        assert again.post("/login", data={"username": "admin", "password": "admin"}).status_code == 401
+        r = again.post("/login", data={"username": "admin", "password": "a-long-new-pass-1"})
+        assert r.status_code == 303 and r.headers["location"] == "/"
+
+
+def test_password_change_needs_the_form_token(settings):
+    c, _ = _first_login(settings)
+    with c:
+        r = c.post("/password", data={"current": "admin", "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"})
+        assert r.status_code == 403 and not (settings.workdir / ".admin-password.json").exists()
+
+
+def test_a_chosen_password_needs_no_change(anon):
+    r = anon.post("/login", data={"username": "admin", "password": PW})
+    assert r.headers["location"] == "/" and anon.get("/").status_code == 200
 
 
 def test_invalid_hash_is_refused(settings):

@@ -259,3 +259,57 @@ def test_web_services_and_voip(client, samples, settings):  # noqa: F811
     assert client.get(f"/api/v1/analyses/{aid}/services", headers=bearer).json()[0]["protocol"] == "LDAP"
     assert client.get(f"/api/v1/analyses/{aid}/voip", headers=bearer).json()["calls"][0]["state"] == "completed"
     assert client.get(f"/api/v1/analyses/{aid}/statistics", headers=bearer).json()["packets"] > 0
+
+
+def test_every_packet_of_a_connection(samples, settings):
+    a = engine.analyze(samples / "http_scenarios.pcap", settings=settings)
+    p = stats.packets(a, settings, 0)
+    with a.connect() as db:
+        count = db.execute("SELECT packets FROM tcp_connections WHERE stream = 0").fetchone()[0]
+    rows = p["rows"]
+    assert len(rows) == count and not p["cut"]
+    assert [r["frame"] for r in rows] == sorted(r["frame"] for r in rows)
+    assert rows[0]["t"] == 0 and rows[0]["from_client"] and rows[0]["flags"] == "S" and not rows[1]["from_client"]
+    assert any("GET /api/users/123" in r["info"] for r in rows)
+
+
+def test_packets_of_a_capture_read_in_parts(samples, settings, monkeypatch):
+    whole = engine.analyze(samples / "http_scenarios.pcap", settings=settings)
+    monkeypatch.setattr(engine, "PART_BYTES", 20_000)
+    parts = engine.analyze(samples / "http_scenarios.pcap", settings=settings, use_cached=False)
+    assert parts.meta["parts"] > 1
+    assert [r["frame"] for r in stats.packets(whole, settings, 3)["rows"]] == [r["frame"] for r in stats.packets(parts, settings, 3)["rows"]]
+
+
+def test_packet_marks(samples, settings):
+    a = engine.analyze(samples / "http_scenarios.pcap", settings=settings)
+    with a.connect() as db:
+        stream = db.execute("SELECT stream FROM tcp_connections WHERE retransmissions > 0 ORDER BY stream LIMIT 1").fetchone()[0]
+    assert any("retransmission" in r["marks"] for r in stats.packets(a, settings, stream)["rows"])
+
+
+def test_follow_http(samples, settings):
+    a = engine.analyze(samples / "http_scenarios.pcap", settings=settings)
+    h2 = engine.analyze(samples / "https_h2.pcap", samples / "https_h2.keylog", settings=settings)
+    with a.connect() as db:
+        x = stats.follow_http(db, 0)
+        total = db.execute("SELECT count(*) FROM http_transactions WHERE stream = 0").fetchone()[0]
+    assert len(x) == total and x[0]["request"].startswith("GET /api/users/123 HTTP/1.1") and x[0]["response"].startswith("HTTP/1.1 200 OK")
+    with h2.connect() as db:
+        y = stats.follow_http(db, 0)
+    assert y and ":method: GET" in y[0]["request"] and ":status: 200" in y[0]["response"] and y[0]["h2_stream"]
+
+
+def test_web_connection_views(client, samples):  # noqa: F811
+    url = upload(client, samples / "http_scenarios.pcap")
+    aid = url.rsplit("/", 1)[1]
+    conns = client.get(f"/api/a/{aid}/connections").json()
+    assert all({"stream", "packets", "bytes", "start_time", "sni"} <= set(c) for c in conns)
+    page = client.get(f"/a/{aid}/conn/0").text
+    assert f"/a/{aid}/conn/0/packets" in page and "Follow HTTP stream" in page and "Follow TCP stream" in page
+    packets = client.get(f"/a/{aid}/conn/0/packets").text
+    assert "Client → server" in packets and "Server → client" in packets and 'class="error"' not in packets
+    http = client.get(f"/a/{aid}/conn/0/follow?mode=http").text
+    assert "GET /api/users/123 HTTP/1.1" in http and "HTTP/1.1 200 OK" in http and f"/a/{aid}/txn/" in http
+    assert client.get(f"/a/{aid}/conn/0/follow?mode=nope").status_code == 404
+    assert client.get(f"/a/{aid}/conn/99999/follow?mode=http").status_code == 404
