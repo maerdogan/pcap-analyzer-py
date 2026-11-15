@@ -16,6 +16,7 @@ ICMP_UNREACHABLE = {0: "network", 1: "host", 2: "protocol", 3: "port", 4: "fragm
                     10: "host_prohibited", 13: "administratively_prohibited"}
 ICMP6_UNREACHABLE = {0: "no_route", 1: "administratively_prohibited", 3: "address", 4: "port"}
 MAX_PACKET_ISSUES = 200_000  # one row per packet, so a flood of the same problem cannot fill the memory
+TLS_CCS = 20
 TLS_ALERT = 21
 TLS_DATA = 23
 SWITCHING_PROTOCOLS = 101
@@ -187,6 +188,8 @@ class Stream:
     req_end: int = 0
     isn: tuple = (None, None)  # raw sequence numbers of SYN and SYN-ACK, which NAT leaves alone
     last_syn: float = 0.0
+    tls_ccs: Packet | None = None  # the client's ChangeCipherSpec: unencrypted, and sent with its Finished
+    challenged: bool = False  # the server answered a SYN with a plain ACK
 
 
 def nat_views(views, order):
@@ -316,6 +319,8 @@ class Builder:
             s.isn = (s.isn[0], s.isn[1] or to_int(p.get("tcp.seq_raw")))
         elif s.synack and not s.hs_ack and flags & ACK and src == s.client:
             s.hs_ack = pk
+        elif s.syn and not s.synack and src != s.client and flags & ACK and not flags & (RST | FIN) and not payload:
+            s.challenged = True  # RFC 5961: the server still holds an older connection on these ports
         mss = to_int(p.get("tcp.options.mss_val"))
         if mss:
             s.mss.append(mss)
@@ -388,6 +393,8 @@ class Builder:
                 v[-1] if v else "0x0303", "unknown")
         if 20 in hs and s.client == src:
             s.tls_end = pk
+        if TLS_CCS in ctypes and s.client == src and s.tls_ccs is None and s.tls_server_hello:
+            s.tls_ccs = pk
         s.tls_hello = s.tls_hello or 1 in hs
         s.tls_certificate = s.tls_certificate or 11 in hs
         if 2 in hs:
@@ -520,7 +527,8 @@ def finish_stream(s, slow_s=causes.SLOW_S):
     hs_cli = s.hs_ack.t - s.synack.t if s.synack and s.hs_ack else None
     rtt_srv, rtt_cli = pick_rtt(hs_srv, s.rtt_srv), pick_rtt(hs_cli, s.rtt_cli)
     connect = hs_srv + hs_cli if hs_srv is not None and hs_cli is not None else None
-    tls_time = s.tls_end.t - s.tls_start.t if s.tls_start and s.tls_end else None
+    end = s.tls_end or s.tls_ccs  # without a key the Finished is unreadable, but the ChangeCipherSpec sent with it is not
+    tls_time = end.t - s.tls_start.t if s.tls_start and end else None
     closer = next((p for p in s.packets if p.flags & RST), None) or next((p for p in s.packets if p.flags & FIN), None)
     txns = _h1_transactions(s, client, rtt_srv) + _h2_transactions(s, client, rtt_srv)
     txns.sort(key=lambda x: x["req_start"])
@@ -552,7 +560,7 @@ def finish_stream(s, slow_s=causes.SLOW_S):
         byte_ratio_db=_ratio_db(pay_c, pay_s), offload=s.offload, one_way=len({p.src for p in s.packets}) == 1,
         tls_cipher=s.tls_cipher, tls_alpn=s.tls_alpn, tls_alert=s.tls_alert, tls_no_answer=s.tls_hello and not s.tls_server_hello,
         tls_resumed=s.tls_server_hello and not s.tls_certificate if s.tls_version != "TLS 1.3" else None, tls_cert_expires=s.tls_cert_expires,
-        tls_unread=_tls_unread(s, client))
+        tls_unread=_tls_unread(s, client), syn_seen=s.syn is not None, challenge_ack=s.challenged and s.synack is None)
     _enrich(s, client, txns, conn, slow_s)
     return conn, txns
 

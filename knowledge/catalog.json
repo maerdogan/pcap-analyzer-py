@@ -528,6 +528,17 @@
         "en": "Receivers reported data that arrived after a gap, so segments were lost or came out of order.",
         "tr": "Alıcılar bir boşluktan sonra gelen veriyi bildirdi, yani segmentler kayboldu veya sırasız geldi."
       }
+    },
+    "syn_challenge_ack": {
+      "topic": "syn_challenge_ack",
+      "title": {
+        "en": "SYN answered with an ACK",
+        "tr": "SYN'e ACK ile cevap verildi"
+      },
+      "why": {
+        "en": "The server still held an older connection on the same ports, so the new connection could not open at once.",
+        "tr": "Sunucu aynı portlarda eski bir bağlantıyı hâlâ tutuyordu, bu yüzden yeni bağlantı hemen açılamadı."
+      }
     }
   },
   "quality": {

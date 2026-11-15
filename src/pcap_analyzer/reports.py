@@ -308,6 +308,7 @@ def histogram(db):
 ISSUES = [
     ("no_response", 1, UNANSWERED.format(t="t."), None),
     ("resets", 1, None, "c.close_type = 'RST'"),
+    ("syn_challenge_ack", 1, None, "c.challenge_ack"),
     ("no_handshake", 1, None, "NOT c.handshake_seen AND c.transactions = 0 AND c.packets <= 3"),
     ("truncated", 1, "t.truncated", None),
     ("gateway", 1, "t.status IN (502, 503, 504)", None),

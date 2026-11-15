@@ -106,5 +106,9 @@
   "pcapng": {
     "title": "RFC 9758 draft: PCAP Next Generation (pcapng) Capture File Format",
     "url": "https://www.ietf.org/archive/id/draft-ietf-opsawg-pcapng-02.html"
+  },
+  "rfc5961": {
+    "title": "RFC 5961: Improving TCP's Robustness to Blind In-Window Attacks",
+    "url": "https://www.rfc-editor.org/rfc/rfc5961"
   }
 }

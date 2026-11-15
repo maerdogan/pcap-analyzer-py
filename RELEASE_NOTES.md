@@ -2,6 +2,17 @@
 
 All changes made on the same day are one minor version.
 
+## 0.7.3 (2026-11-15)
+
+### Added
+
+- An issue for a SYN that the server answers with a plain ACK instead of a SYN-ACK. The server still held an older connection on the same ports, so the client reset it and tried again. Found in a capture of 1,360 short HTTPS connections, 39 of which opened this way.
+
+### Fixed
+
+- Connections whose SYN was seen but not answered by a SYN-ACK were counted as started before the capture. Only those without a SYN are now.
+- Without a TLS key, the handshake time of every TLS connection was empty, because the client's Finished is encrypted. It now ends at the client's ChangeCipherSpec, which goes with the Finished.
+
 ## 0.7.2 (2026-11-15)
 
 ### Fixed

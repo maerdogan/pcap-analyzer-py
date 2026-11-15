@@ -1660,5 +1660,43 @@
         "3"
       ]
     ]
+  },
+  "syn_challenge_ack": {
+    "label": {
+      "en": "SYN answered with an ACK",
+      "tr": "SYN'e ACK ile cevap"
+    },
+    "meaning": {
+      "en": "A new connection starts with a SYN, and the server should answer with a SYN-ACK. Here it answered with a plain ACK, a challenge ACK: it still kept an earlier connection with the same addresses and ports, often in TIME_WAIT after it closed it. The client then sends a reset and tries again, so the connection opens late or the request fails. It happens when a client opens many short connections and reuses source ports soon.",
+      "tr": "Yeni bir bağlantı SYN ile başlar ve sunucunun SYN-ACK ile cevap vermesi gerekir. Burada sunucu düz bir ACK, yani challenge ACK gönderdi: aynı adres ve portlarla önceki bir bağlantıyı hâlâ tutuyordu, çoğunlukla kendisi kapattıktan sonra TIME_WAIT durumunda. İstemci de reset gönderip yeniden dener, bu yüzden bağlantı geç açılır veya istek başarısız olur. Bir istemci çok sayıda kısa bağlantı açıp kaynak portlarını kısa sürede yeniden kullandığında görülür."
+    },
+    "checks": [
+      {
+        "en": "Keep connections open and reuse them, such as HTTP keep-alive or a connection pool, instead of one connection per request.",
+        "tr": "Her istek için yeni bağlantı açmak yerine bağlantıları açık tutup yeniden kullanın, örneğin HTTP keep-alive veya bir bağlantı havuzu ile."
+      },
+      {
+        "en": "Widen the client's source port range with `net.ipv4.ip_local_port_range`, so a port is used again later.",
+        "tr": "Bir portun daha geç yeniden kullanılması için istemcinin kaynak port aralığını `net.ipv4.ip_local_port_range` ile genişletin."
+      },
+      {
+        "en": "Check which side closes first. When the server closes, it keeps TIME_WAIT; TCP timestamps on both sides let it accept a new SYN sooner.",
+        "tr": "Hangi tarafın önce kapattığına bakın. Sunucu kapatırsa TIME_WAIT onda kalır; iki tarafta TCP timestamp açık olursa yeni bir SYN'i daha erken kabul edebilir."
+      }
+    ],
+    "sources": [
+      [
+        "rfc5961",
+        "4"
+      ],
+      [
+        "rfc9293",
+        "3.6.1"
+      ],
+      [
+        "linux_sysctl",
+        "ip_local_port_range"
+      ]
+    ]
   }
 }

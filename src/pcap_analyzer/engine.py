@@ -155,9 +155,9 @@ def _digest(paths, flt, slow_s):
 
 def _facts(db):
     """What the warnings and the quality report need from the saved connections and requests."""
-    c = db.execute("""SELECT count(*), count(*) FILTER (NOT handshake_seen), count(*) FILTER (close_type IS NULL),
+    c = db.execute("""SELECT count(*), count(*) FILTER (NOT syn_seen), count(*) FILTER (close_type IS NULL),
         count(*) FILTER ((payload_client = 0 AND payload_server = 0) OR one_way), count(*) FILTER (kind = 'TLS'),
-        coalesce(bool_or(offload), false), coalesce(bool_or(kind = 'TLS' AND handshake_seen AND tls_unread), false), coalesce(bool_or(kind = 'TLS' AND NOT handshake_seen), false)
+        coalesce(bool_or(offload), false), coalesce(bool_or(kind = 'TLS' AND handshake_seen AND tls_unread), false), coalesce(bool_or(kind = 'TLS' AND NOT syn_seen), false)
         FROM tcp_connections""").fetchone()
     events = dict(db.execute("SELECT event, count(*) FROM tcp_events WHERE event IN ('ack_lost_segment', 'lost_segment') GROUP BY event").fetchall())
     shared = db.execute("""SELECT 1 FROM http_transactions WHERE request_id IS NOT NULL AND request_id <> ''

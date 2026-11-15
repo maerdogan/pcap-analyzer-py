@@ -878,5 +878,12 @@
   "Rejected": "Rechazada",
   "Cancelled": "Cancelada",
   "Not answered": "No contestada",
-  "Other": "Otra"
+  "Other": "Otra",
+  "SYN answered with an ACK": "SYN respondido con ACK",
+  "The server still held an older connection on the same ports, so the new connection could not open at once.": "El servidor aún tenía una conexión anterior en los mismos puertos, así que la nueva no pudo abrirse enseguida.",
+  "A new connection starts with a SYN, and the server should answer with a SYN-ACK. Here it answered with a plain ACK, a challenge ACK: it still kept an earlier connection with the same addresses and ports, often in TIME_WAIT after it closed it. The client then sends a reset and tries again, so the connection opens late or the request fails. It happens when a client opens many short connections and reuses source ports soon.": "Una conexión nueva empieza con un SYN y el servidor debería responder con un SYN-ACK. Aquí respondió con un ACK simple, un challenge ACK: aún tenía una conexión anterior con las mismas direcciones y puertos, a menudo en TIME_WAIT tras cerrarla. El cliente envía entonces un reset y lo intenta de nuevo, así que la conexión se abre tarde o la petición falla. Ocurre cuando un cliente abre muchas conexiones cortas y reutiliza pronto los puertos de origen.",
+  "Keep connections open and reuse them, such as HTTP keep-alive or a connection pool, instead of one connection per request.": "Mantenga las conexiones abiertas y reutilícelas, por ejemplo con HTTP keep-alive o un grupo de conexiones, en lugar de una conexión por petición.",
+  "Widen the client's source port range with `net.ipv4.ip_local_port_range`, so a port is used again later.": "Amplíe el rango de puertos de origen del cliente con `net.ipv4.ip_local_port_range`, para que un puerto se reutilice más tarde.",
+  "Check which side closes first. When the server closes, it keeps TIME_WAIT; TCP timestamps on both sides let it accept a new SYN sooner.": "Compruebe qué lado cierra primero. Si cierra el servidor, él mantiene TIME_WAIT; los timestamps TCP en ambos lados le permiten aceptar antes un nuevo SYN.",
+  "SYN seen": "SYN visto"
 }

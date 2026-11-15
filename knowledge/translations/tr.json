@@ -548,5 +548,7 @@
   "Rejected": "Reddedildi",
   "Cancelled": "İptal edildi",
   "Not answered": "Cevaplanmadı",
-  "Other": "Diğer"
+  "Other": "Diğer",
+  "SYN seen": "SYN görüldü",
+  "SYN answered with an ACK": "SYN'e ACK ile cevap verildi"
 }

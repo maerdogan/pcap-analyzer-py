@@ -596,6 +596,12 @@ def gen_wire(out, truth):
         t2 = r.handshake(t + 2 + k)
         t2 = txn(r, t2, req("GET", f"/api/reuse/{k}"), resp(200, b"{}"), 0.005)
         r.close(t2)
+    # A SYN the server answers with a plain ACK, since it still holds an older connection on these ports; the client resets and tries again
+    ch = Conn(w, "10.10.1.90", 45000, "10.20.2.10", 8080)
+    ch.emit(t + 3.5, True, SYN, opts=struct.pack(">BBH", 2, 4, 1460))
+    ch.seq[False] = 123456
+    ch.emit(t + 3.502, False, ACK)
+    ch.emit(t + 3.5021, True, RST)
     # HTTP on port 9999, which tshark reads as HTTP only with Decode As
     d = Conn(w, "10.10.1.80", 43000, "10.20.2.20", 9999)
     t3 = d.handshake(t + 4)

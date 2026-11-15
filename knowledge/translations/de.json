@@ -878,5 +878,12 @@
   "Rejected": "Abgelehnt",
   "Cancelled": "Abgebrochen",
   "Not answered": "Nicht angenommen",
-  "Other": "Andere"
+  "Other": "Andere",
+  "SYN answered with an ACK": "SYN mit ACK beantwortet",
+  "The server still held an older connection on the same ports, so the new connection could not open at once.": "Der Server hielt auf denselben Ports noch eine ältere Verbindung, daher konnte die neue nicht sofort öffnen.",
+  "A new connection starts with a SYN, and the server should answer with a SYN-ACK. Here it answered with a plain ACK, a challenge ACK: it still kept an earlier connection with the same addresses and ports, often in TIME_WAIT after it closed it. The client then sends a reset and tries again, so the connection opens late or the request fails. It happens when a client opens many short connections and reuses source ports soon.": "Eine neue Verbindung beginnt mit einem SYN, und der Server sollte mit einem SYN-ACK antworten. Hier antwortete er mit einem einfachen ACK, einem Challenge-ACK: Er hielt noch eine frühere Verbindung mit denselben Adressen und Ports, oft in TIME_WAIT, nachdem er sie geschlossen hatte. Der Client sendet dann einen Reset und versucht es erneut, also öffnet die Verbindung spät oder die Anfrage scheitert. Das geschieht, wenn ein Client viele kurze Verbindungen öffnet und Quellports bald wiederverwendet.",
+  "Keep connections open and reuse them, such as HTTP keep-alive or a connection pool, instead of one connection per request.": "Halten Sie Verbindungen offen und nutzen Sie sie wieder, etwa mit HTTP-Keep-Alive oder einem Verbindungspool, statt einer Verbindung pro Anfrage.",
+  "Widen the client's source port range with `net.ipv4.ip_local_port_range`, so a port is used again later.": "Erweitern Sie den Quellportbereich des Clients mit `net.ipv4.ip_local_port_range`, damit ein Port erst später wieder benutzt wird.",
+  "Check which side closes first. When the server closes, it keeps TIME_WAIT; TCP timestamps on both sides let it accept a new SYN sooner.": "Prüfen Sie, welche Seite zuerst schließt. Schließt der Server, hält er TIME_WAIT; TCP-Timestamps auf beiden Seiten lassen ihn ein neues SYN früher annehmen.",
+  "SYN seen": "SYN gesehen"
 }

@@ -30,6 +30,26 @@ def test_packet_issues(wire):
     assert icmp["details"][0]["label"] == "Port unreachable" and icmp["guide"]["checks"]
 
 
+def test_syn_answered_with_an_ack(wire):
+    a, _ = wire
+    with a.connect() as db:
+        found = {i["key"]: i["count"] for i in reports.issues(db, a.meta)}
+        row = db.execute("SELECT syn_seen, challenge_ack, handshake_seen FROM tcp_connections WHERE client_port = 45000").fetchone()
+        normal = db.execute("SELECT count(*) FROM tcp_connections WHERE challenge_ack").fetchone()[0]
+    assert row == (True, True, False) and found["syn_challenge_ack"] == 1 and normal == 1
+    assert a.meta["quality"]["started_before"] == 0  # its SYN was seen, so it did not start before the capture
+
+
+def test_tls_time_without_a_key(samples, settings):
+    a = engine.analyze(samples / "https_tls12_ecdhe.pcap", settings=settings)
+    keyed = engine.analyze(samples / "https_tls12_ecdhe.pcap", samples / "https_tls12_ecdhe.keylog", settings=settings)
+    with a.connect() as db, keyed.connect() as dk:
+        plain = db.execute("SELECT tls_time FROM tcp_connections ORDER BY stream").fetchall()
+        known = dk.execute("SELECT tls_time FROM tcp_connections ORDER BY stream").fetchall()
+    assert all(t is not None for (t,) in plain)
+    assert [round(t, 3) for (t,) in plain] == [round(t, 3) for (t,) in known]  # the ChangeCipherSpec goes with the Finished
+
+
 def test_quic_connection(wire):
     a, _ = wire
     with a.connect() as db:
