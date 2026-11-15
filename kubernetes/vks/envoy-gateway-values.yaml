@@ -11,7 +11,7 @@ config:
         watch:
           type: Namespaces
           namespaces:
-            - pcap-analyzer
+            - dump-analyzers
 deployment:
   envoyGateway:
     resources:

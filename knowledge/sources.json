@@ -78,5 +78,33 @@
   "rfc6455": {
     "title": "RFC 6455: The WebSocket Protocol",
     "url": "https://www.rfc-editor.org/rfc/rfc6455"
+  },
+  "rfc3168": {
+    "title": "RFC 3168: Explicit Congestion Notification (ECN) to IP",
+    "url": "https://www.rfc-editor.org/rfc/rfc3168"
+  },
+  "rfc2018": {
+    "title": "RFC 2018: TCP Selective Acknowledgment Options",
+    "url": "https://www.rfc-editor.org/rfc/rfc2018"
+  },
+  "rfc1035": {
+    "title": "RFC 1035: Domain Names, Implementation and Specification",
+    "url": "https://www.rfc-editor.org/rfc/rfc1035"
+  },
+  "rfc792": {
+    "title": "RFC 792: Internet Control Message Protocol",
+    "url": "https://www.rfc-editor.org/rfc/rfc792"
+  },
+  "rfc4443": {
+    "title": "RFC 4443: ICMPv6",
+    "url": "https://www.rfc-editor.org/rfc/rfc4443"
+  },
+  "wireshark_expert": {
+    "title": "Wireshark User's Guide: Expert Information",
+    "url": "https://www.wireshark.org/docs/wsug_html_chunked/ChAdvExpert.html"
+  },
+  "pcapng": {
+    "title": "RFC 9758 draft: PCAP Next Generation (pcapng) Capture File Format",
+    "url": "https://www.ietf.org/archive/id/draft-ietf-opsawg-pcapng-02.html"
   }
 }

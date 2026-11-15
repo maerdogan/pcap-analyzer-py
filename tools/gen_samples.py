@@ -556,6 +556,168 @@ def gen_perf(out, certdir, truth):
         truth[name] = dict(packets=n, connections=conns, transactions=conns * 5, size=(out / name).stat().st_size)
 
 
+def udp_packet(w, t, src, dst, sport, dport, data, from_c=True):
+    udp = struct.pack(">HHHH", sport, dport, 8 + len(data), 0) + data
+    w.write(t, (MAC_S + MAC_C if from_c else MAC_C + MAC_S) + b"\x08\x00" + ipv4(w, src, dst, 17, udp, 64))
+
+
+def quic_long(dcid, scid, ptype=0):
+    """A QUIC version 1 long-header packet. Its payload cannot be decrypted, but the header is read."""
+    body = bytes(1200 - 7 - len(dcid) - len(scid) - 3)
+    return bytes([0xC0 | ptype << 4 | 3, 0, 0, 0, 1, len(dcid)]) + dcid + bytes([len(scid)]) + scid + b"\x00" + struct.pack(">H", 0x4000 | len(body)) + body
+
+
+def gen_wire(out, truth):
+    """Problems Wireshark's expert information shows on single packets, a QUIC connection and HTTP on a port that needs Decode As."""
+    w = PcapWriter(out / "wire.pcap")
+    t = T0
+    dns_exchange(w, t, "missing.example.test", 0.004, None, qid=0x2001, port=53100)  # no such name
+    dns_exchange(w, t + 0.1, "found.example.test", 0.003, "10.20.2.10", qid=0x2002, port=53101)
+    # ICMP port unreachable quoting a UDP packet
+    quoted = ipv4(w, "10.10.1.50", "10.20.2.99", 17, struct.pack(">HHHH", 53200, 514, 8, 0), 64)
+    udp_packet(w, t + 0.2, "10.10.1.50", "10.20.2.99", 53200, 514, b"")
+    icmp = struct.pack(">BBHI", 3, 3, 0, 0) + quoted[:28]
+    w.write(t + 0.201, MAC_C + MAC_S + b"\x08\x00" + ipv4(w, "10.20.2.99", "10.10.1.50", 1, icmp, 64))
+    # A connection with ECN congestion marks and a duplicate ACK with SACK blocks
+    c = Conn(w, "10.10.1.50", 41000, "10.20.2.10", 8080)
+    t1 = c.handshake(t + 0.3)
+    t1 = txn(c, t1, req("GET", "/api/ecn"), resp(200, rand_body(3000)), 0.01)
+    sack = struct.pack(">BBBBII", 1, 1, 5, 10, 1000, 2000)
+    c.emit(t1 + 0.001, True, ACK | 0x40, opts=sack)
+    c.emit(t1 + 0.002, False, ACK | 0x80, b"x")
+    c.close(t1 + 0.01)
+    # Bad flags: SYN with FIN, and a packet with no flags
+    bad = Conn(w, "10.10.1.60", 41500, "10.20.2.10", 8080)
+    bad.emit(t + 1.0, True, SYN | FIN)
+    bad.emit(t + 1.1, True, 0)
+    # The same ports used again by a new connection after the first closed
+    for k in range(2):
+        r = Conn(w, "10.10.1.70", 42000, "10.20.2.10", 8080)
+        t2 = r.handshake(t + 2 + k)
+        t2 = txn(r, t2, req("GET", f"/api/reuse/{k}"), resp(200, b"{}"), 0.005)
+        r.close(t2)
+    # HTTP on port 9999, which tshark reads as HTTP only with Decode As
+    d = Conn(w, "10.10.1.80", 43000, "10.20.2.20", 9999)
+    t3 = d.handshake(t + 4)
+    t3 = txn(d, t3, req("GET", "/decoded"), resp(200, b"{}"), 0.02)
+    d.close(t3)
+    # QUIC: Initial from the client, Initial and Handshake from the server, then short-header packets
+    dcid, scid = bytes(range(1, 9)), bytes(range(9, 17))
+    udp_packet(w, t + 5, "10.10.1.50", "10.20.2.30", 50000, 443, quic_long(dcid, b""))
+    udp_packet(w, t + 5.02, "10.20.2.30", "10.10.1.50", 443, 50000, quic_long(b"", scid), from_c=False)
+    udp_packet(w, t + 5.021, "10.20.2.30", "10.10.1.50", 443, 50000, quic_long(b"", scid, 2), from_c=False)
+    udp_packet(w, t + 5.03, "10.20.2.30", "10.10.1.50", 443, 50000, b"\x40" + dcid + bytes(60), from_c=False)
+    udp_packet(w, t + 5.04, "10.10.1.50", "10.20.2.30", 50000, 443, b"\x40" + scid + bytes(60))
+    # A DNS answer that claims more records than it holds: malformed
+    q = struct.pack(">HHHHHH", 0x3001, 0x8180, 1, 3, 0, 0) + b"\x03bad\x00" + struct.pack(">HH", 1, 1)
+    udp_packet(w, t + 6, "10.10.0.2", "10.10.1.50", 53, 53300, q, from_c=False)
+    w.close()
+    truth["wire.pcap"] = dict(dns_errors=1, icmp_unreachable=1, tcp_flags_invalid=2, quic=1, decode_as="tcp.port==9999,http")
+
+
+def exchange(c, t, pairs, wait=0.01, gap=0.002):
+    """Send each request and its answer in turn. A None request is a greeting or a second answer from the server."""
+    for q, a in pairs:
+        if q is not None:
+            t = c.send(t, True, q) + wait
+        if a is not None:
+            t = c.send(t, False, a) + gap
+    return t
+
+
+def smb2(cmd, msg_id, response=False, status=0):
+    head = b"\xfeSMB" + struct.pack("<HHIHHIIQIIQ", 64, 1, status, cmd, 1, 1 if response else 0, 0, msg_id, 0, 0, 0) + bytes(16)
+    body = head + struct.pack("<HH", 4, 0)
+    return struct.pack(">I", len(body)) + body
+
+
+def dcerpc(ptype, call_id, opnum=0, stub=b"\0" * 8, status=None):
+    if ptype == 0:
+        rest = struct.pack("<IHH", len(stub), 0, opnum) + stub
+    elif ptype == 2:
+        rest = struct.pack("<IHBB", len(stub), 0, 0, 0) + stub
+    else:
+        rest = struct.pack("<IHBBI", 0, 0, 0, 0, status or 0) + bytes(4)
+    return struct.pack("<BBBB4sHHI", 5, 0, ptype, 3, b"\x10\0\0\0", 16 + len(rest), 0, call_id) + rest
+
+
+def amqp_method(channel, cls, method, args):
+    payload = struct.pack(">HH", cls, method) + args
+    return struct.pack(">BHI", 1, channel, len(payload)) + payload + b"\xce"
+
+
+def sip(first, call_id, cseq, extra=(), body=b""):
+    h = [first, "Via: SIP/2.0/UDP 10.30.1.10:5060;branch=z9hG4bK" + call_id[:8], "From: <sip:alice@voip.example.test>;tag=a1",
+         "To: <sip:bob@voip.example.test>", f"Call-ID: {call_id}", f"CSeq: {cseq}", "Max-Forwards: 70", *extra, f"Content-Length: {len(body)}"]
+    return ("\r\n".join(h) + "\r\n\r\n").encode() + body
+
+
+def gen_services(out, truth):
+    """Request and answer pairs of other protocols, two SIP calls and an RTP stream with one lost and one reordered packet."""
+    w = PcapWriter(out / "services.pcap")
+    t = T0
+    c = Conn(w, "10.30.1.10", 44000, "10.30.2.25", 25)
+    t1 = c.handshake(t)
+    exchange(c, t1, [(None, b"220 mail.example.test ESMTP\r\n"), (b"EHLO client\r\n", b"250-mail.example.test\r\n250 SIZE 1000000\r\n"),
+                     (b"MAIL FROM:<a@example.test>\r\n", b"250 OK\r\n"), (b"RCPT TO:<nobody@example.test>\r\n", b"550 No such user\r\n"),
+                     (b"QUIT\r\n", b"221 Bye\r\n")], wait=0.02)
+    c = Conn(w, "10.30.1.10", 44001, "10.30.2.21", 21)
+    t1 = c.handshake(t + 1)
+    exchange(c, t1, [(None, b"220 FTP ready\r\n"), (b"USER demo\r\n", b"331 Password required\r\n"), (b"PASS demo\r\n", b"230 Logged in\r\n"),
+                     (b"CWD /missing\r\n", b"550 No such directory\r\n"), (b"RETR file.txt\r\n", b"150 Opening data connection\r\n"),
+                     (None, b"226 Transfer complete\r\n")], wait=0.03)
+    c = Conn(w, "10.30.1.10", 44002, "10.30.2.30", 389)
+    t1 = c.handshake(t + 2)
+    bind = lambda mid: bytes([0x30, 0x0c, 0x02, 0x01, mid, 0x60, 0x07, 0x02, 0x01, 0x03, 0x04, 0x00, 0x80, 0x00])  # noqa: E731
+    bound = lambda mid, code: bytes([0x30, 0x0c, 0x02, 0x01, mid, 0x61, 0x07, 0x0a, 0x01, code, 0x04, 0x00, 0x04, 0x00])  # noqa: E731
+    exchange(c, t1, [(bind(1), bound(1, 0)), (bind(2), bound(2, 49))], wait=0.04)
+    c = Conn(w, "10.30.1.10", 44003, "10.30.2.40", 9092)
+    t1 = c.handshake(t + 3)
+    kreq = struct.pack(">hhih", 18, 0, 7, 6) + b"client"
+    kresp = struct.pack(">ihi", 7, 0, 0)
+    exchange(c, t1, [(struct.pack(">i", len(kreq)) + kreq, struct.pack(">i", len(kresp)) + kresp)], wait=0.05)
+    c = Conn(w, "10.30.1.10", 44004, "10.30.2.50", 445)
+    t1 = c.handshake(t + 4)
+    exchange(c, t1, [(smb2(13, 1), smb2(13, 1, True)), (smb2(13, 2), smb2(13, 2, True, 0xC0000022))], wait=0.06)
+    c = Conn(w, "10.30.1.10", 44005, "10.30.2.60", 135)
+    t1 = c.handshake(t + 5)
+    exchange(c, t1, [(dcerpc(0, 1, opnum=4), dcerpc(2, 1)), (dcerpc(0, 2, opnum=5), dcerpc(3, 2, status=0x1C010003))], wait=0.07)
+    c = Conn(w, "10.30.1.10", 44006, "10.30.2.70", 1883)
+    t1 = c.handshake(t + 6)
+    exchange(c, t1, [(bytes.fromhex("100d00044d5154540402003c000163"), bytes.fromhex("20020000")),
+                     (bytes.fromhex("820600010001740" + "0"), bytes.fromhex("9003000100")), (bytes.fromhex("c000"), bytes.fromhex("d000"))], wait=0.008)
+    c = Conn(w, "10.30.1.10", 44007, "10.30.2.80", 5672)
+    t1 = c.handshake(t + 7)
+    t1 = c.send(t1, True, b"AMQP\x00\x00\x09\x01") + 0.001
+    exchange(c, t1, [(amqp_method(1, 20, 10, b"\x00"), amqp_method(1, 20, 11, b"\x00\x00\x00\x00"))], wait=0.009)
+    # SIP: an answered call with RTP, and a call the callee rejects
+    sdp = b"v=0\r\no=- 1 1 IN IP4 10.30.1.10\r\ns=-\r\nc=IN IP4 10.30.1.10\r\nt=0 0\r\nm=audio 40000 RTP/AVP 0\r\na=rtpmap:0 PCMU/8000\r\n"
+    ct = ("Content-Type: application/sdp",)
+    t2 = t + 8
+    calls = [
+        (t2, True, sip("INVITE sip:bob@voip.example.test SIP/2.0", "call-one@client", "1 INVITE", ct, sdp)),
+        (t2 + 0.01, False, sip("SIP/2.0 100 Trying", "call-one@client", "1 INVITE")),
+        (t2 + 0.5, False, sip("SIP/2.0 180 Ringing", "call-one@client", "1 INVITE")),
+        (t2 + 2.0, False, sip("SIP/2.0 200 OK", "call-one@client", "1 INVITE", ct, sdp.replace(b"10.30.1.10", b"10.30.2.90").replace(b"40000", b"40002"))),
+        (t2 + 2.01, True, sip("ACK sip:bob@voip.example.test SIP/2.0", "call-one@client", "1 ACK")),
+        (t2 + 4.0, True, sip("BYE sip:bob@voip.example.test SIP/2.0", "call-one@client", "2 BYE")),
+        (t2 + 4.01, False, sip("SIP/2.0 200 OK", "call-one@client", "2 BYE")),
+        (t2 + 5.0, True, sip("INVITE sip:bob@voip.example.test SIP/2.0", "call-two@client", "1 INVITE")),
+        (t2 + 5.3, False, sip("SIP/2.0 486 Busy Here", "call-two@client", "1 INVITE")),
+    ]
+    for ts, from_c, data in calls:
+        udp_packet(w, ts, *(("10.30.1.10", "10.30.2.90") if from_c else ("10.30.2.90", "10.30.1.10")), 5060, 5060, data, from_c=from_c)
+    order = list(range(100))
+    order.remove(30)  # lost
+    order[50], order[51] = order[51], order[50]  # out of order
+    for k, n in enumerate(order):
+        late = 0.004 if n % 10 == 0 else 0.0  # some packets wait in a queue: jitter
+        rtp = struct.pack(">BBHII", 0x80, 0, 1000 + n, 160 * n, 0x11223344) + bytes(160)
+        udp_packet(w, t2 + 2.02 + k * 0.02 + late, "10.30.1.10", "10.30.2.90", 40000, 40002, rtp)
+    w.close()
+    truth["services.pcap"] = dict(rtp_packets=99, rtp_lost=1, rtp_out_of_order=1)
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     out = Path(args[0] if args else "samples")
@@ -574,6 +736,8 @@ def main():
     gen_poor(out, truth)
     gen_split(out, truth)
     gen_nat(out, truth)
+    gen_wire(out, truth)
+    gen_services(out, truth)
     if "--perf" in sys.argv:
         gen_perf(out, out, truth)
     (out / "truth.json").write_text(json.dumps(truth, indent=2))

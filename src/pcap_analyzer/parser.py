@@ -6,9 +6,16 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from . import causes, privacy, urls
+from .stats import Quic
 from .tshark import AGG, EVENTS
 
 SYN, ACK, FIN, RST = 0x02, 0x10, 0x01, 0x04
+ECE, CWR = 0x40, 0x80
+DNS_RCODES = {1: "format_error", 2: "server_failure", 3: "no_such_name", 4: "not_implemented", 5: "refused"}
+ICMP_UNREACHABLE = {0: "network", 1: "host", 2: "protocol", 3: "port", 4: "fragmentation_needed", 9: "network_prohibited",
+                    10: "host_prohibited", 13: "administratively_prohibited"}
+ICMP6_UNREACHABLE = {0: "no_route", 1: "administratively_prohibited", 3: "address", 4: "port"}
+MAX_PACKET_ISSUES = 200_000  # one row per packet, so a flood of the same problem cannot fill the memory
 TLS_ALERT = 21
 TLS_DATA = 23
 SWITCHING_PROTOCOLS = 101
@@ -206,6 +213,38 @@ class Builder:
         self.total = self.tcp = self.bytes = self.truncated = self.fragments = self.frag_needed = 0
         self.copies = self.tunnelled = self.nat_views = 0
         self.t_first = self.t_last = None
+        self.quic = Quic()
+        self.packet_issues = []  # (frame, time, kind, detail, source, destination) of problems Wireshark's expert info would show
+
+    def issue(self, p, t, kind, detail=None):
+        if len(self.packet_issues) < MAX_PACKET_ISSUES:
+            src = last(p, "ip.src") or last(p, "ipv6.src")
+            dst = last(p, "ip.dst") or last(p, "ipv6.dst")
+            self.packet_issues.append((to_int(p.get("frame.number")), t, kind, detail, src, dst))
+
+    def _packet_issues(self, p, t):
+        """Problems seen on one packet that are not about a request: bad TCP flags, congestion marks, DNS errors, ICMP errors and malformed packets."""
+        if p.get("_ws.malformed"):
+            self.issue(p, t, "malformed")
+        rcode = to_int(first(p, "dns.flags.rcode"))
+        if rcode and first(p, "dns.flags.response") in ("1", "True") and not p.get("icmp.type"):
+            self.issue(p, t, "dns_error", DNS_RCODES.get(rcode, str(rcode)))
+        if first(p, "icmp.type") == "3":
+            code = to_int(first(p, "icmp.code"))
+            self.issue(p, t, "icmp_unreachable", ICMP_UNREACHABLE.get(code, str(code)))
+        elif first(p, "icmpv6.type") == "1":
+            code = to_int(first(p, "icmpv6.code"))
+            self.issue(p, t, "icmp_unreachable", ICMP6_UNREACHABLE.get(code, str(code)))
+        if p.get("tcp.stream") and not p.get("icmp.type") and not p.get("icmpv6.type"):
+            flags = to_int(p.get("tcp.flags")) or 0
+            if flags & SYN and flags & (FIN | RST) or not flags & (SYN | FIN | RST | ACK) or flags & FIN and not flags & ACK:
+                self.issue(p, t, "tcp_flags_invalid", f"0x{flags:03x}")
+            elif flags & ECE and not flags & SYN or flags & CWR and not flags & SYN:
+                self.issue(p, t, "ecn_congestion", "CWR" if flags & CWR else "ECE")
+            if p.get("tcp.analysis.reused_ports"):
+                self.issue(p, t, "port_reused", f"{p.get('tcp.srcport')}->{p.get('tcp.dstport')}")
+            if p.get("tcp.options.sack_le"):
+                self.issue(p, t, "sack_blocks", str(len(many(p, "tcp.options.sack_le"))))
 
     def add(self, p):
         self.total += 1
@@ -223,6 +262,9 @@ class Builder:
             return
         self.t_first = t if self.t_first is None else min(self.t_first, t)
         self.t_last = t if self.t_last is None else max(self.t_last, t)
+        self._packet_issues(p, t)
+        if p.get("quic.connection.number"):
+            self.quic.add(p, t)
         if p.get("dns.time"):
             self.dns_rows.append((first(p, "dns.qry.name"), to_float(p["dns.time"]), to_int(p["frame.number"]), t))
         elif first(p, "dns.flags.response") in ("0", "False") and not p.get("icmp.type"):

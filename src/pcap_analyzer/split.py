@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 PCAP_MAGIC = {b"\xd4\xc3\xb2\xa1": "<", b"\xa1\xb2\xc3\xd4": ">", b"\x4d\x3c\xb2\xa1": "<", b"\xa1\xb2\x3c\x4d": ">"}
 PCAP_MODIFIED = {b"\x34\xcd\xb2\xa1": "<", b"\xa1\xb2\xcd\x34": ">"}  # Kuznetzov's format has 8 more bytes per record
 SHB, IDB, PB, SPB, EPB, JOURNAL = 0x0A0D0D0A, 1, 2, 3, 6, 9
+ISB = 5
+ISB_IFDROP, ISB_OSDROP = 5, 7
 FRAME_BLOCKS = (PB, SPB, EPB, JOURNAL)  # tshark numbers these as frames
 ETHERNET, NULL, LOOP, SLL, SLL2 = 1, 0, 108, 113, 276
 RAW = (101, 12, 14, 228, 229)
@@ -272,3 +274,47 @@ def feed(path, plan, k):
                 out.clear()
     if out:
         yield bytes(out)
+
+
+def drops(path):
+    """Packets the capture itself dropped, from the interface statistics a pcapng file ends with.
+    The counters run from the start of the capture, so the last block of each interface holds the total.
+    A pcap file keeps no such counts, and None says the count is unknown."""
+    try:
+        with open(path, "rb") as f:
+            if f.read(4) != struct.pack("<I", SHB):
+                return None
+            f.seek(0)
+            order, section, last, pos = "<", 0, {}, 0
+            while True:
+                top = f.read(8)
+                if len(top) < 8:
+                    break
+                kind = struct.unpack_from("<I", top)[0]
+                if kind == SHB:
+                    order = "<" if f.read(4) == b"\x4d\x3c\x2b\x1a" else ">"
+                    section += 1
+                kind, size = struct.unpack(order + "II", top)
+                if size < 12:
+                    break
+                if kind == ISB:
+                    f.seek(pos + 8)
+                    body = f.read(size - 12)
+                    iface = struct.unpack_from(order + "I", body)[0]
+                    counts, at = {}, 12
+                    while at + 4 <= len(body):
+                        code, length = struct.unpack_from(order + "HH", body, at)
+                        if code == 0:
+                            break
+                        if code in (ISB_IFDROP, ISB_OSDROP) and length == 8:
+                            counts[code] = struct.unpack_from(order + "Q", body, at + 4)[0]
+                        at += 4 + length + (-length % 4)
+                    if counts:
+                        last[(section, iface)] = counts
+                pos += size
+                f.seek(pos)
+    except OSError:
+        return None
+    if not last:
+        return None
+    return dict(interface=sum(c.get(ISB_IFDROP, 0) for c in last.values()), system=sum(c.get(ISB_OSDROP, 0) for c in last.values()))

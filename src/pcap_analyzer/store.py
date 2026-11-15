@@ -28,7 +28,10 @@ SCHEMA = {
         max_packet INT, dns_time DOUBLE, grpc_status INT, grpc_message VARCHAR""",
     "tcp_events": "stream INT, frame BIGINT, time DOUBLE, sender VARCHAR, event VARCHAR",
     "dns_queries": "name VARCHAR, duration DOUBLE, frame BIGINT, time DOUBLE",
-    "stream_parts": "stream INT, part INT, part_stream INT",  # where a capture read in parts keeps each connection
+    "stream_parts": "stream INT, part INT, part_stream INT",
+    "packet_issues": "frame BIGINT, time DOUBLE, kind VARCHAR, detail VARCHAR, src VARCHAR, dst VARCHAR",
+    "quic_connections": """client VARCHAR, server VARCHAR, start_time DOUBLE, end_time DOUBLE, duration DOUBLE, packets BIGINT, bytes BIGINT,
+        version VARCHAR, sni VARCHAR, alpn VARCHAR, handshake DOUBLE, requests INT, http3 BOOLEAN""",  # where a capture read in parts keeps each connection
 }
 
 
@@ -90,7 +93,7 @@ class Writer:
     def _read(self, table):
         return f"read_json('{self.files[table]}', format='newline_delimited', columns={_types(table, STAGED[table])})"
 
-    def close(self, number, dns, attach_dns):
+    def close(self, number, dns, attach_dns, packet_issues=(), quic=()):
         """number: each connection that stays, from its number while reading to its final number.
         attach_dns gets the requests that opened a connection and fills in their dns_time."""
         for f in self.out.values():
@@ -123,6 +126,8 @@ class Writer:
             pick = ", ".join("m.final" if c == "stream" else f"e.{c}" for c in cols)
             db.execute(f"INSERT INTO tcp_events SELECT {pick} FROM {self._read('tcp_events')} e JOIN renumber m ON e.stream = m.reading ORDER BY e.n")
             _load(db, "dns_queries", dns, folder)
+            _load(db, "packet_issues", sorted(packet_issues, key=lambda r: r[0] or 0), folder)
+            _load(db, "quic_connections", quic, folder)
         for f in self.files.values():
             f.unlink()
         shutil.rmtree(folder / "duckdb.tmp", ignore_errors=True)

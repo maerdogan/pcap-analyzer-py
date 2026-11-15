@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import __version__, capture_guide, compare, engine, exports, knowledge, records, reports, split, tshark
+from .. import __version__, capture_guide, compare, engine, exports, knowledge, records, reports, services, split, stats, tshark
 from ..config import Settings
 from . import saved
 from .auth import Auth
@@ -32,7 +32,7 @@ KEYLOG_LIMIT = 512 * CHUNK  # NetScaler writes the keys of every session it serv
 FORM_OVERHEAD = KEYLOG_LIMIT + 2 * CHUNK  # key files and form fields on top of the capture
 PURGE_INTERVAL_S = 3600
 MAX_CAPTURE_S = 3600
-TAB_LABELS = {"overview": "Overview", "issues": "Issues", "urls": "URLs", "connections": "Connections", "hosts": "Hosts", "backends": "Servers", "tls": "TLS"}
+TAB_LABELS = {"overview": "Overview", "issues": "Issues", "urls": "URLs", "connections": "Connections", "hosts": "Hosts", "backends": "Servers", "tls": "TLS", "stats": "Statistics"}
 LANGUAGE_NAMES = {"tr": "Türkçe", "en": "English", "de": "Deutsch", "es": "Español"}
 LANGUAGE_COOKIE = "pcap_language"
 LANGUAGE_DAYS = 365
@@ -289,16 +289,20 @@ def create_app(settings=None, https=False):
     @app.post("/upload", response_class=HTMLResponse)
     async def upload(request: Request, capture: UploadFile, more: list[UploadFile] = (), keylog: UploadFile | None = None, rsa_key: UploadFile | None = None,
                      host_a: str = Form(""), host_b: str = Form(""), port: str = Form(""), start: str = Form(""),
-                     end: str = Form(""), display_filter: str = Form("")):
-        job = await accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, more)
+                     end: str = Form(""), display_filter: str = Form(""), decode_as: str = Form("")):
+        job = await accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, more, decode_as)
         log(request, "upload", capture.filename)
         return page(request, "_job.html", job=job)
 
-    async def accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, more=()):
+    async def accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, more=(), decode_as=""):
         if not capture.filename:
             _bad(knowledge.t("Choose a capture file."))
         flt = tshark.Filter(_ip(host_a, "First host"), _ip(host_b, "Second host"), _opt_int(port, "Port"), _epoch(start), _epoch(end),
-                            display_filter.strip() or None)
+                            display_filter.strip() or None, tshark.decode_rules(decode_as))
+        try:
+            flt.decode_args()
+        except tshark.TsharkError as e:
+            _bad(str(e))
         tmp = tempfile.mkdtemp(prefix="pcap-upload-", dir="/tmp")
         try:
             path = Path(tmp) / "capture"
@@ -370,6 +374,8 @@ def create_app(settings=None, https=False):
                 return dict(issues=reports.issues(db, a.meta))
             if tab == "tls":
                 return dict(tls=reports.tls_health(db))
+            if tab == "stats":
+                return dict(http_load=stats.http_load(db), http_sequences=stats.http_sequences(db), quic=stats.quic(db))
         return {}
 
     @app.get("/a/{aid}", response_class=HTMLResponse)
@@ -528,8 +534,9 @@ def create_app(settings=None, https=False):
 
     @app.post(API_PREFIX + "captures", status_code=202)
     async def api_upload(request: Request, capture: UploadFile, keylog: UploadFile | None = None, rsa_key: UploadFile | None = None,
-                         host_a: str = Form(""), host_b: str = Form(""), port: str = Form(""), start: str = Form(""), end: str = Form(""), display_filter: str = Form("")):
-        job = await accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter)
+                         host_a: str = Form(""), host_b: str = Form(""), port: str = Form(""), start: str = Form(""), end: str = Form(""), display_filter: str = Form(""),
+                         decode_as: str = Form("")):
+        job = await accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, (), decode_as)
         log(request, "api_upload", capture.filename)
         return dict(job=job.id, state=job.state)
 
@@ -556,6 +563,9 @@ def create_app(settings=None, https=False):
 
     @app.get(API_PREFIX + "analyses/{aid}/{section}")
     def api_section(aid: str, section: str):
+        if section in ("services", "voip", "statistics"):  # these read the kept capture again
+            a = opened(aid)
+            return packet_view(lambda: {"services": services.response_times, "voip": services.voip, "statistics": stats.overview}[section](a, settings))
         if section not in API_SECTIONS:
             _bad(knowledge.t("Unknown data set."), 404)
         a = opened(aid)
@@ -623,6 +633,98 @@ def create_app(settings=None, https=False):
                 _bad(str(e), 500)
             body = out.read_bytes()
         return Response(body, media_type="application/vnd.tcpdump.pcap", headers=_attachment(a, f"connection-{stream}.pcapng"))
+
+    def packet_view(make):
+        """Views that read the kept capture again. A missing capture or a filter tshark refuses gives a plain message."""
+        try:
+            return make()
+        except stats.Unavailable as e:
+            _bad(str(e), 404)
+        except tshark.TsharkError as e:
+            _bad(str(e))
+        except tshark.Stopped:
+            _bad(knowledge.t("Reading the capture passed its time limit of {n} seconds.", n=settings.analysis_timeout_s), 504)
+
+    @app.get("/a/{aid}/stats/overview", response_class=HTMLResponse)
+    def stats_overview(request: Request, aid: str):
+        a = opened(aid)
+        try:
+            o = packet_view(lambda: stats.overview(a, settings))
+        except HTTPException as e:
+            return page(request, "_stats_overview.html", a=a, error=e.detail)
+        return page(request, "_stats_overview.html", a=a, o=o)
+
+    @app.get("/a/{aid}/stats/services", response_class=HTMLResponse)
+    def stats_services(request: Request, aid: str):
+        a = opened(aid)
+        try:
+            found = packet_view(lambda: services.response_times(a, settings))
+        except HTTPException as e:
+            return page(request, "_stats_services.html", a=a, error=e.detail)
+        return page(request, "_stats_services.html", a=a, services=found)
+
+    @app.get("/a/{aid}/stats/voip", response_class=HTMLResponse)
+    def stats_voip(request: Request, aid: str):
+        a = opened(aid)
+        try:
+            v = packet_view(lambda: services.voip(a, settings))
+        except HTTPException as e:
+            return page(request, "_stats_voip.html", a=a, error=e.detail)
+        for c in v["calls"]:
+            c["state_label"] = services.state_label(c["state"])
+        return page(request, "_stats_voip.html", a=a, v=v)
+
+    @app.get("/a/{aid}/stats/io", response_class=HTMLResponse)
+    def stats_io(request: Request, aid: str, filter: str = ""):  # noqa: A002 - the name people see in the address
+        a = opened(aid)
+        try:
+            packet_view(lambda: stats.io_graph(a, settings, filter.strip() or None))
+        except HTTPException as e:
+            return page(request, "_io_graph.html", a=a, error=e.detail)
+        return page(request, "_io_graph.html", a=a, flt=filter.strip())
+
+    @app.get("/api/a/{aid}/io")
+    def api_io(aid: str, filter: str = ""):  # noqa: A002
+        a = opened(aid)
+        return packet_view(lambda: stats.io_graph(a, settings, filter.strip() or None))
+
+    @app.get("/api/a/{aid}/tcpgraph/{stream}")
+    def api_tcpgraph(aid: str, stream: int):
+        a = opened(aid)
+        data = packet_view(lambda: stats.tcp_graphs(a, settings, stream))
+        if data is None:
+            _bad(knowledge.t("This connection does not exist."), 404)
+        return data
+
+    @app.get("/a/{aid}/flow", response_class=HTMLResponse)
+    def flow(request: Request, aid: str, filter: str = "", stream: int | None = None):  # noqa: A002
+        a = opened(aid)
+        f = packet_view(lambda: stats.flow_graph(a, settings, filter.strip() or None, stream))
+        return page(request, "flow.html", f=f, flt=filter.strip(), stream=stream, **capture_ctx(a))
+
+    @app.get("/a/{aid}/conn/{stream}/follow", response_class=HTMLResponse)
+    def follow(request: Request, aid: str, stream: int, mode: str = "ascii"):
+        a = opened(aid)
+        if mode not in ("ascii", "hex"):
+            _bad(knowledge.t("This view does not exist."), 404)
+        log(request, "follow", f"{aid} connection {stream}")
+        f = packet_view(lambda: stats.follow(a, settings, stream, mode))
+        return page(request, "follow.html", f=f, stream=stream, **capture_ctx(a))
+
+    @app.get("/a/{aid}/objects", response_class=HTMLResponse)
+    def objects(request: Request, aid: str):
+        a = opened(aid)
+        found = packet_view(lambda: stats.objects(a, settings))
+        return page(request, "objects.html", objects=found, **capture_ctx(a))
+
+    @app.get("/export/{aid}/object/{name}")
+    def export_object(request: Request, aid: str, name: str):
+        a = opened(aid)
+        path = stats.object_path(a, name)
+        if path is None:
+            _bad(knowledge.t("This file does not exist."), 404)
+        log(request, "export", f"{aid} object {name}")
+        return Response(path.read_bytes(), media_type="application/octet-stream", headers=_attachment(a, name))
 
     @app.get("/api/a/{aid}/waterfall/{stream}")
     def api_waterfall(aid: str, stream: int):

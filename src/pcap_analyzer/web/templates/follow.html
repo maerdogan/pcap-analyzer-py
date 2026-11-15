@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
+{% block title %}{{ _("Follow TCP stream") }}{% endblock %}
+{% block capture_nav %}{{ ui.capnav(a, "connections", issue_count) }}{% endblock %}
+{% block main %}
+{{ ui.crumbs([(_("Captures"), "/"), (m.filename, "/a/" ~ a.id), (_("Connection {n}", n=stream), "/a/" ~ a.id ~ "/conn/" ~ stream), (_("Follow TCP stream"), None)]) }}
+<header class="hero"><div class="hero-head"><div><h1>{{ _("Follow TCP stream") }}</h1>
+  <p class="muted">{{ _("What each side sent, in order. The client's bytes are on the left, the server's on the right. Known secret headers and fields are masked.") }}</p></div>
+  <div class="actions"><p class="switch">
+    <a href="?mode=ascii" {% if f.mode == "ascii" %}aria-current="true"{% endif %}>{{ _("Text") }}</a>
+    <a href="?mode=hex" {% if f.mode == "hex" %}aria-current="true"{% endif %}>Hex</a>
+  </p></div></div></header>
+<section class="panel follow">
+  {% for c in f.chunks %}<pre class="side-{{ c.side }}">{{ c.text }}</pre>{% else %}<p class="empty">{{ _("This connection carried no data.") }}</p>{% endfor %}
+  {% if f.chunks and f.chunks[-1].cut %}<p class="hint">{{ _("Only the first 2 MB are shown. Download the connection as PCAP to see all of it.") }}</p>{% endif %}
+</section>
+{% endblock %}

@@ -28,11 +28,18 @@ Check **Capture trust** first. A low value means packets are missing and the num
 
 ## 5. Narrow it down
 
+A port that carries another protocol than its usual one, such as HTTP on 9000, can be read with **Decode As** under the filters on the upload page, as `tcp.port==9000,http`.
+
+
 - **Issues** lists problems by weight. Open one to see its requests.
 - **URLs** groups similar addresses.
 - **Connections** lists TCP connections. A connection page shows its requests on a time axis.
 - **Servers** marks a backend that stands out from its peers.
 - **TLS** shows versions, ciphers and failed handshakes, also without a key.
+- **Statistics** reads the packets again, as Wireshark's Statistics menu does: protocol hierarchy, packet lengths, UDP and Ethernet conversations, MAC and IP endpoints, an IO graph for any display filter, the flow graph, HTTP load distribution and request sequences, QUIC connections and Export Objects. A large capture takes a few minutes the first time, and the result is kept.
+- A connection page also has Stevens, throughput, round trip and window graphs, its flow graph and **Follow TCP stream**. Follow Stream masks known secret headers, but files from Export Objects are raw and not masked.
+- **Statistics** also times requests of other protocols: LDAP, Kerberos, SMB2, Kafka, SMTP, DCERPC, MQTT, AMQP and FTP. It lists SIP calls, and RTP streams with loss, reordering and jitter.
+- **Issues** also lists what Wireshark's expert information shows on single packets: malformed packets, ICMP destination unreachable, DNS errors, invalid TCP flags, reused ports, ECN congestion marks, SACK blocks and packets the capture itself dropped.
 - **Inspect traffic** filters by address, port, URL and size.
 
 ## 6. Compare and follow

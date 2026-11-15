@@ -22,6 +22,7 @@ Upload a PCAP and see where the time went: connection setup, network delay, serv
 - Ready capture commands for Linux servers, pods and worker nodes, including VXLAN, Geneve and `tcpdump -i any`
 - Turkish, English, German and Spanish
 - HTTPS decryption with a TLS key log file or RSA key
+- Wireshark's views in the browser: expert information as issues, protocol hierarchy, conversations, endpoints, packet lengths, IO graph, flow graph, Stevens, throughput, round trip and window graphs, Follow TCP Stream, Export Objects, Decode As, QUIC with HTTP/3, service response times of LDAP, Kerberos, SMB2, Kafka, SMTP, DCERPC, MQTT, AMQP and FTP, SIP calls and RTP jitter and loss
 - Export to CSV, Excel, JSON, PNG, SVG, HTML, HAR and PCAP
 - TLS view without a key: versions, ciphers, failed handshakes and certificate end dates
 - WebSocket and gRPC handling, gzip captures and captures in several parts

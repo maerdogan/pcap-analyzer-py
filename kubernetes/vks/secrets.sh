@@ -2,13 +2,14 @@
 # Create the admin login and the TLS certificate once. Values stay in the platform secrets folder.
 set -euo pipefail
 SECRETS=${SECRETS:-/data/vks/runtime/secrets}
-CTX=${CTX:-analyzer}
-NS=pcap-analyzer
+CTX=${CTX:-analyzers}
+NS=${NS:-dump-analyzers}
 ENV_FILE=$SECRETS/pcap-analyzer-admin.env
 CRT=$SECRETS/pcap-analyzer-tls.crt
 KEY=$SECRETS/pcap-analyzer-tls.key
 PY=${PY:-python3}
 umask 077
+mkdir -p "$SECRETS"
 
 if [ ! -f "$ENV_FILE" ]; then
   PASSWORD=$(openssl rand -base64 18 | tr -d '/+=')

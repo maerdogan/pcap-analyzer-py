@@ -34,6 +34,7 @@ def main(argv=None):
     an.add_argument("--start", type=float, help="epoch seconds")
     an.add_argument("--end", type=float, help="epoch seconds")
     an.add_argument("--filter", help="Wireshark display filter")
+    an.add_argument("--decode-as", action="append", default=[], help="read a port as another protocol, such as tcp.port==9000,http; can be given more than once")
     an.add_argument("--no-cache", action="store_true")
     an.add_argument("--json", action="store_true")
     sub.add_parser("list", help="list saved analyses")
@@ -78,7 +79,7 @@ def main(argv=None):
             if len(args.host) > 2:
                 ap.error("--host can be given at most twice")
             hosts = args.host + [None, None]
-            flt = tshark.Filter(hosts[0], hosts[1], args.port, args.start, args.end, args.filter)
+            flt = tshark.Filter(hosts[0], hosts[1], args.port, args.start, args.end, args.filter, tuple(args.decode_as))
             a = engine.analyze(args.file, args.keylog, args.rsa_key, flt, settings, not args.no_cache)
             print(json.dumps(a.meta, indent=2)) if args.json else _summary(a)
         elif args.cmd == "list":

@@ -31,7 +31,7 @@ spec:
     group: gateway.envoyproxy.io
     kind: EnvoyProxy
     name: pcap-analyzer
-    namespace: pcap-analyzer
+    namespace: dump-analyzers
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Install Envoy Gateway in namespace pcap-analyzer and open the Gateway API route.
-# This adds cluster-wide CRDs, a GatewayClass and RBAC to the analyzer cluster.
+# Install Envoy Gateway in namespace dump-analyzers and open the Gateway API route.
+# This adds cluster-wide CRDs, a GatewayClass and RBAC to the analyzers cluster.
 # The platform's Gateway API CRDs stay as they are.
 set -euo pipefail
 export PATH=/data/vks/runtime/bin:$PATH
 export KUBECONFIG=${KUBECONFIG:-/data/vks/runtime/kubeconfig.yaml}
 HERE=$(cd "$(dirname "$0")" && pwd)
-CTX=analyzer
-NS=pcap-analyzer
+CTX=analyzers
+NS=dump-analyzers
 VERSION=v1.9.3
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT

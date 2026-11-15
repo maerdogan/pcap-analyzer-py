@@ -341,3 +341,19 @@ legend { font-weight: 650; padding: 0 .3rem; }
 }
 @media print { .ticker, .bar, .actions, .chart-actions, .foot, .crumbs { display: none; } body { background: #fff; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Flow graph and Follow Stream */
+.flow-wrap { overflow-x: auto; }
+.flow { font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.flow .host { font-weight: 600; fill: var(--ink, #202126); }
+.flow .life { stroke: #c9ced8; stroke-dasharray: 3 3; }
+.flow .msg { stroke: #3347ee; stroke-width: 1.2; }
+.flow .head { fill: #3347ee; }
+.flow .time { fill: #5c616c; }
+.flow .info { fill: #202126; }
+.follow pre { margin: 0 0 6px; padding: 8px 10px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.follow pre.side-0 { background: #fbeaea; color: #7a1020; margin-right: 15%; }
+.follow pre.side-1 { background: #e8eefc; color: #172a8a; margin-left: 15%; }
+form.inline { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
+form.inline label.wide { flex: 1; min-width: 220px; display: grid; gap: 4px; }
+.pad { padding: 0 16px; }

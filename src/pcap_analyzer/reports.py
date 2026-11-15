@@ -324,7 +324,17 @@ ISSUES = [
     ("network", 3, "t.cause = 'network'", None),
     ("small_mss", 3, None, "c.mss < 1200"),
 ]
-META_ISSUES = (("slow_dns", 3), ("frag_needed", 2), ("ip_fragments", 3), ("slow_backend", 2))
+META_ISSUES = (("slow_dns", 3), ("frag_needed", 2), ("ip_fragments", 3), ("slow_backend", 2), ("capture_drops", 1))
+# Problems found on single packets, as Wireshark's expert information shows them: (issue, severity, kind in packet_issues)
+PACKET_ISSUES = [
+    ("malformed", 2, "malformed"),
+    ("icmp_unreachable", 2, "icmp_unreachable"),
+    ("dns_errors", 2, "dns_error"),
+    ("tcp_flags_invalid", 2, "tcp_flags_invalid"),
+    ("port_reused", 2, "port_reused"),
+    ("ecn_congestion", 3, "ecn_congestion"),
+    ("sack_blocks", 3, "sack_blocks"),
+]
 ISSUE_LIMIT = 200
 
 
@@ -336,7 +346,14 @@ def percentile(values, q):
 
 
 def issue_keys():
-    return [i[0] for i in ISSUES] + [k for k, _ in META_ISSUES]
+    return [i[0] for i in ISSUES] + [k for k, _ in META_ISSUES] + [i[0] for i in PACKET_ISSUES]
+
+
+def _packet_counts(db):
+    try:
+        return dict(db.execute("SELECT kind, count(*) FROM packet_issues GROUP BY kind").fetchall())
+    except duckdb.CatalogException:  # saved by an older version
+        return {}
 
 
 def issues(db, meta):
@@ -352,10 +369,14 @@ def issues(db, meta):
             found.append(dict(knowledge.issue(key), count=n, severity=severity, drill=True))
     counts = dict(slow_dns=db.execute("SELECT count(*) FROM dns_queries WHERE duration > 0.1").fetchone()[0],
                   frag_needed=meta.get("frag_needed", 0), ip_fragments=meta.get("ip_fragments", 0),
-                  slow_backend=sum(bool(b["flag"]) for b in backends(db)))
+                  slow_backend=sum(bool(b["flag"]) for b in backends(db)), capture_drops=sum((meta.get("capture_drops") or {}).values()))
     for key, severity in META_ISSUES:
         if counts[key]:
             found.append(dict(knowledge.issue(key), count=counts[key], severity=severity, drill=False))
+    packets = _packet_counts(db)
+    for key, severity, kind in PACKET_ISSUES:
+        if packets.get(kind):
+            found.append(dict(knowledge.issue(key), count=packets[kind], severity=severity, drill=True))
     return sorted(found, key=lambda x: (x["severity"], -x["count"]))
 
 
@@ -363,7 +384,7 @@ def issue_detail(db, key):
     """Requests and connections behind one issue."""
     row = next((i for i in ISSUES if i[0] == key), None)
     if row is None:
-        return None
+        return _packet_issue_detail(db, key)
     _, _, tsql, csql = row
     if tsql:
         txns = slowest(db, tsql, [], ISSUE_LIMIT)
@@ -375,6 +396,32 @@ def issue_detail(db, key):
         c["rst_note"] = knowledge.reset_note(c.get("rst_code"))
     about = knowledge.issue(key)
     return dict(about, transactions=txns, connections=conns, guide=knowledge.guide(about["topic"]))
+
+
+def _packet_issue_detail(db, key):
+    """Packets behind an issue found on single packets, with how often each kind of detail came up."""
+    row = next((i for i in PACKET_ISSUES if i[0] == key), None)
+    if row is None:
+        return None
+    kind = row[2]
+    try:
+        details = rows(db, "SELECT detail, count(*) AS n FROM packet_issues WHERE kind = ? GROUP BY detail ORDER BY n DESC LIMIT 50", [kind])
+        packets = rows(db, "SELECT * FROM packet_issues WHERE kind = ? ORDER BY frame LIMIT ?", [kind, ISSUE_LIMIT])
+        pairs = rows(db, """SELECT src, dst, count(*) AS n FROM packet_issues WHERE kind = ? GROUP BY src, dst ORDER BY n DESC LIMIT 20""", [kind])
+    except duckdb.CatalogException:
+        return None
+    about = knowledge.issue(key)
+    for d in details:
+        d["label"] = knowledge.t(DETAIL_LABELS.get(d["detail"], d["detail"] or "–"))
+    return dict(about, transactions=[], connections=[], packets=packets, details=details, pairs=pairs, guide=knowledge.guide(about["topic"]))
+
+
+DETAIL_LABELS = {
+    "format_error": "Format error", "server_failure": "Server failure (SERVFAIL)", "no_such_name": "No such name (NXDOMAIN)", "not_implemented": "Not implemented",
+    "refused": "Refused", "network": "Network unreachable", "host": "Host unreachable", "protocol": "Protocol unreachable", "port": "Port unreachable",
+    "fragmentation_needed": "Fragmentation needed", "network_prohibited": "Network prohibited", "host_prohibited": "Host prohibited",
+    "administratively_prohibited": "Administratively prohibited", "no_route": "No route", "address": "Address unreachable",
+}
 
 
 def time_budget(db):

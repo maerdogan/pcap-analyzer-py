@@ -440,6 +440,94 @@
         "en": "One side ended TLS with an alert. The TLS tab names it.",
         "tr": "Taraflardan biri TLS'i bir uyarıyla bitirdi. TLS sekmesi uyarının adını gösterir."
       }
+    },
+    "capture_drops": {
+      "topic": "capture_drops",
+      "title": {
+        "en": "Packets dropped while capturing",
+        "tr": "Capture sırasında düşen paketler"
+      },
+      "why": {
+        "en": "The capture tool or the kernel could not keep up and lost packets. Gaps in the results may come from this, not from the network.",
+        "tr": "Capture aracı veya kernel yetişemedi ve paket kaybetti. Sonuçlardaki boşluklar ağdan değil bundan kaynaklanabilir."
+      }
+    },
+    "malformed": {
+      "topic": "malformed",
+      "title": {
+        "en": "Malformed packets",
+        "tr": "Bozuk paketler"
+      },
+      "why": {
+        "en": "Wireshark could not read these packets as their protocol says they should be.",
+        "tr": "Wireshark bu paketleri protokollerinin söylediği gibi okuyamadı."
+      }
+    },
+    "icmp_unreachable": {
+      "topic": "icmp_unreachable",
+      "title": {
+        "en": "Destination unreachable",
+        "tr": "Hedefe ulaşılamıyor"
+      },
+      "why": {
+        "en": "A router or host answered that a packet could not be delivered.",
+        "tr": "Bir router veya host, paketin teslim edilemediğini bildirdi."
+      }
+    },
+    "dns_errors": {
+      "topic": "dns_errors",
+      "title": {
+        "en": "DNS errors",
+        "tr": "DNS hataları"
+      },
+      "why": {
+        "en": "DNS answers said the name does not exist, or the server failed or refused.",
+        "tr": "DNS cevapları adın olmadığını ya da sunucunun hata verdiğini veya reddettiğini söyledi."
+      }
+    },
+    "tcp_flags_invalid": {
+      "topic": "tcp_flags_invalid",
+      "title": {
+        "en": "Invalid TCP flags",
+        "tr": "Geçersiz TCP bayrakları"
+      },
+      "why": {
+        "en": "Packets carried flag sets no normal TCP stack sends, such as SYN with FIN, or no flags at all.",
+        "tr": "Paketler, normal bir TCP yığınının göndermediği bayraklar taşıdı, örneğin FIN ile birlikte SYN veya hiç bayrak yok."
+      }
+    },
+    "port_reused": {
+      "topic": "port_reused",
+      "title": {
+        "en": "Port numbers reused",
+        "tr": "Port numaraları yeniden kullanıldı"
+      },
+      "why": {
+        "en": "A new connection started with the same addresses and ports as an earlier one.",
+        "tr": "Yeni bir bağlantı önceki bir bağlantıyla aynı adres ve portlarla başladı."
+      }
+    },
+    "ecn_congestion": {
+      "topic": "ecn_congestion",
+      "title": {
+        "en": "Congestion marks (ECN)",
+        "tr": "Tıkanıklık işaretleri (ECN)"
+      },
+      "why": {
+        "en": "A router on the path marked packets as congested instead of dropping them, and the sender slowed down.",
+        "tr": "Yoldaki bir router paketleri düşürmek yerine tıkanık olarak işaretledi ve gönderen yavaşladı."
+      }
+    },
+    "sack_blocks": {
+      "topic": "sack_blocks",
+      "title": {
+        "en": "Selective acknowledgments (SACK)",
+        "tr": "Seçici onaylar (SACK)"
+      },
+      "why": {
+        "en": "Receivers reported data that arrived after a gap, so segments were lost or came out of order.",
+        "tr": "Alıcılar bir boşluktan sonra gelen veriyi bildirdi, yani segmentler kayboldu veya sırasız geldi."
+      }
     }
   },
   "quality": {

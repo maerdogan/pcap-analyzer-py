@@ -123,6 +123,50 @@
       Object.keys(data.phases).map((p) => ({ name: data.phases[p], type: "bar", stack: "t", itemStyle: { color: PHASE_COLORS[p] }, data: data.rows.map((d) => d[p]), tooltip: { valueFormatter: secs } }))),
   });
 
+  const bits = (v) => {
+    for (const u of ["bit/s", "kbit/s", "Mbit/s"]) { if (v < 1000) return v.toFixed(u === "bit/s" ? 0 : 1) + " " + u; v /= 1000; }
+    return v.toFixed(1) + " Gbit/s";
+  };
+  CHARTS.io = (data) => ({
+    grid: { left: 56, right: 70, top: 34, bottom: 56 }, legend: { top: 0, icon: "roundRect", itemWidth: 12, itemHeight: 8 }, tooltip: { trigger: "axis" },
+    dataZoom: [{ type: "slider", height: 18, bottom: 6 }],
+    xAxis: { type: "category", data: data.rows.map((d) => d.t.toFixed(3) + " s"), axisLabel: { color: MUTED }, axisLine: { lineStyle: { color: LINE } } },
+    yAxis: [{ type: "value", minInterval: 1, axisLabel: { color: MUTED }, splitLine: { lineStyle: { color: LINE } } },
+      { type: "value", axisLabel: { color: MUTED, formatter: bits }, splitLine: { show: false } }],
+    series: [
+      { name: t("Packets") + " / " + data.step + " s", type: "bar", data: data.rows.map((d) => d.packets), itemStyle: { color: BRAND } },
+      { name: t("Bits per second"), type: "line", yAxisIndex: 1, showSymbol: false, data: data.rows.map((d) => d.bps), lineStyle: { color: "#e2702a", width: 1.5 },
+        itemStyle: { color: "#e2702a" }, tooltip: { valueFormatter: bits } },
+    ],
+  });
+  const SIDE_COLORS = ["#3347ee", "#3e9b5f"];
+  CHARTS.tcpgraph = (data, el) => {
+    const kind = el.dataset.kind;
+    const axis = { stevens: t("Sequence number"), throughput: t("Bits per second"), rtt: t("Round trip"), window: t("Window") }[kind];
+    const series = [];
+    data.sides.forEach((s, i) => {
+      const name = s.side + (s.client ? " (" + t("Client") + ")" : "");
+      const color = SIDE_COLORS[i % 2];
+      if (kind === "stevens") {
+        series.push({ name, type: "scatter", symbolSize: 4, data: s.stevens.map((p) => [p[0], p[1]]),
+          itemStyle: { color: (p) => (s.stevens[p.dataIndex][2] ? BAD : color) } });
+      } else if (kind === "throughput") {
+        series.push({ name, type: "line", step: "end", showSymbol: false, data: s.throughput.rows, lineStyle: { color }, itemStyle: { color } });
+      } else {
+        series.push({ name, type: kind === "rtt" ? "scatter" : "line", symbolSize: 4, showSymbol: kind === "rtt", data: s[kind], lineStyle: { color }, itemStyle: { color } });
+      }
+    });
+    const fmt = kind === "throughput" ? bits : kind === "rtt" ? secs : (v) => v;
+    return {
+      grid: { left: 80, right: 16, top: 34, bottom: 56 }, legend: { top: 0, icon: "roundRect", itemWidth: 12, itemHeight: 8 },
+      tooltip: { trigger: kind === "throughput" || kind === "window" ? "axis" : "item", valueFormatter: fmt },
+      dataZoom: [{ type: "slider", height: 18, bottom: 6 }, { type: "inside" }],
+      xAxis: { type: "value", name: t("Seconds"), nameLocation: "middle", nameGap: 26, axisLabel: { color: MUTED }, splitLine: { lineStyle: { color: LINE } } },
+      yAxis: { type: "value", name: axis, scale: kind === "stevens", axisLabel: { color: MUTED, formatter: fmt }, splitLine: { lineStyle: { color: LINE } } },
+      series,
+    };
+  };
+
   function rangeLink(el, chart, data) {
     const link = Object.assign(document.createElement("a"), { className: "button", hidden: true, textContent: t("Inspect this period") });
     el.parentElement.append(link);
@@ -140,12 +184,25 @@
     root.querySelectorAll("[data-chart]").forEach(async (el) => {
       if (el.dataset.ready) return;
       el.dataset.ready = "1";
-      const data = await (await fetch(el.dataset.src)).json();
+      const reply = await fetch(el.dataset.src);
+      const data = await reply.json();
+      if (!reply.ok) {
+        el.replaceWith(Object.assign(document.createElement("p"), { className: "error", role: "alert", textContent: data.detail || reply.statusText }));
+        return;
+      }
       const chart = echarts.init(el, null, { renderer: "canvas" });
-      const option = { textStyle: { fontFamily: "Archivo, system-ui, sans-serif" }, animation: false, ...CHARTS[el.dataset.chart](data) };
+      const make = () => ({ textStyle: { fontFamily: "Archivo, system-ui, sans-serif" }, animation: false, ...CHARTS[el.dataset.chart](data, el) });
+      let option = make();
       chart.setOption(option);
       chartButtons(el, chart, option);
       if (el.dataset.chart === "timeline") rangeLink(el, chart, data);
+      el.closest(".panel")?.querySelectorAll("[data-graph-switch] a").forEach((a) => a.addEventListener("click", (e) => {
+        e.preventDefault();
+        el.dataset.kind = a.dataset.kind;
+        a.parentElement.querySelectorAll("a").forEach((b) => b.toggleAttribute("aria-current", b === a));
+        option = make();
+        chart.setOption(option, true);
+      }));
       addEventListener("resize", () => chart.resize());
     });
   }

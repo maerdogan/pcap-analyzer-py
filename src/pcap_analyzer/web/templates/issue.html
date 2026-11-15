@@ -16,5 +16,29 @@
   {% endfor %}</tbody>
 </table></div></section>
 {% endif %}
+{% if d.details and d.details | length > 1 or d.details and d.details[0].detail %}
+<section class="panel flush">
+<h2>{{ _("Kinds") }}</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>{{ _("Kind") }}</th><th class="num">{{ _("Packets") }}</th></tr></thead>
+  <tbody>{% for x in d.details %}<tr><td>{{ x.label }}</td><td class="num">{{ x.n }}</td></tr>{% endfor %}</tbody>
+</table></div></section>
+{% endif %}
+{% if d.pairs %}
+<section class="panel flush">
+<h2>{{ _("Source and destination") }}</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th>{{ _("Source") }}</th><th>{{ _("Destination") }}</th><th class="num">{{ _("Packets") }}</th></tr></thead>
+  <tbody>{% for x in d.pairs %}<tr><td>{{ x.src or "–" }}</td><td>{{ x.dst or "–" }}</td><td class="num">{{ x.n }}</td></tr>{% endfor %}</tbody>
+</table></div></section>
+{% endif %}
+{% if d.packets %}
+<section class="panel flush">
+<h2>{{ _("Packets") }}</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th class="num">{{ _("Frame") }}</th><th>{{ _("Time") }}</th><th>{{ _("Source") }}</th><th>{{ _("Destination") }}</th><th>{{ _("Detail") }}</th></tr></thead>
+  <tbody>{% for x in d.packets %}<tr><td class="num">{{ x.frame }}</td><td>{{ x.time | clock }}</td><td>{{ x.src or "–" }}</td><td>{{ x.dst or "–" }}</td><td>{{ x.detail or "–" }}</td></tr>{% endfor %}</tbody>
+</table></div></section>
+{% endif %}
 {% if d.transactions %}<section class="panel flush"><h2>{{ _("Requests") }}</h2>{{ ui.waterfall(d.transactions, a) }}</section>{% endif %}
 {% endblock %}

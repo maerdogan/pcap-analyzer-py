@@ -2,6 +2,32 @@
 
 All changes made on the same day are one minor version.
 
+## 0.7.1 (2026-11-15)
+
+### Added
+
+- Service response times on the Statistics tab, as Wireshark's Service Response Time shows them, for LDAP, Kerberos, SMB2, Kafka, SMTP, DCERPC, MQTT, AMQP and FTP: requests, answers, errors, average, 95th percentile and slowest per operation and per server, the error answers and the slowest exchanges.
+- SIP calls with caller, callee, state, final answer, time to ringing, time to answer and talk time.
+- RTP streams with lost, out of order and duplicate packets, the largest gap and RFC 3550 jitter. RTP is found by its header also without the SIP that set it up.
+- The REST API gives these and the packet statistics under `/api/v1/analyses/{id}/services`, `/voip` and `/statistics`.
+
+### Changed
+
+- tshark is asked only for fields it knows, so a tshark that lacks a newer field still analyzes the capture and leaves that value empty.
+- `kubernetes/vks` targets the platform's `analyzers` cluster and its `dump-analyzers` namespace.
+
+## 0.7.0 (2026-11-15)
+
+### Added
+
+- Issues found on single packets, as Wireshark's expert information shows them: malformed packets, ICMP and ICMPv6 destination unreachable with their reason, DNS errors such as NXDOMAIN and SERVFAIL, invalid TCP flags such as SYN with FIN, reused port numbers, ECN congestion marks and SACK blocks. Each issue lists its packets, kinds and addresses.
+- Packets the capture itself dropped, read from the interface statistics at the end of a pcapng file.
+- Decode As on the upload page, the API and the CLI, such as `tcp.port==9000,http`.
+- A Statistics tab: protocol hierarchy, packet lengths, UDP and Ethernet conversations, MAC and IP endpoints with GeoIP when `PCAP_ANALYZER_GEOIP_DIR` is set, an IO graph for any display filter, HTTP load distribution and request sequences, and QUIC connections with their handshake time and, with a key log, HTTP/3 requests.
+- On a connection page: Stevens, throughput, round trip and window graphs, the flow graph and Follow TCP Stream. A flow graph also works for any display filter.
+- Export Objects for HTTP, SMB, TFTP, FTP, e-mail and DICOM, kept with the analysis up to 200 MB.
+- These views read the kept capture again, in the same parts as the analysis for captures over 100 MB, and keep their result next to the analysis.
+
 ## 0.6.1 (2026-11-05)
 
 ### Added

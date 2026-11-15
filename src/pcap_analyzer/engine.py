@@ -289,7 +289,7 @@ def _run(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit):
         if b.total and b.t_first is None:
             raise WrongFile(knowledge.t("This file holds no network packets."))
         limit.check()
-        writer.close(number, b.dns_rows, lambda txns: _attach_dns(txns, b.dns_rows, b.dns_asks))
+        writer.close(number, b.dns_rows, lambda txns: _attach_dns(txns, b.dns_rows, b.dns_asks), b.packet_issues, b.quic.rows())
         _mark_capture_end(tmp / "analysis.duckdb", b.t_last, slow_s)
         limit.check()
         return _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_version, started, warnings, b, parts, slow_s)
@@ -396,7 +396,8 @@ def _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_
         facts = _facts(db)
     meta = dict(
         id=aid, filename=display_name or path.name, size=path.stat().st_size, created=time.time(), tshark=ts_version, version=__version__,
-        decryption="keylog" if keylog else "rsa_key" if rsa_key else None, filter=flt.expression(),
+        decryption="keylog" if keylog else "rsa_key" if rsa_key else None, filter=flt.expression(), decode_as=list(flt.decode_as),
+        capture_drops=split.drops(path),
         packets=b.total, tcp_packets=b.tcp, bytes=b.bytes, connections=facts["connections"], transactions=facts["transactions"],
         ip_fragments=b.fragments, frag_needed=b.frag_needed, copies=b.copies, tunnelled=b.tunnelled, capture_start=b.t_first, capture_end=b.t_last, duration_s=round(time.monotonic() - started, 3), slow_s=slow_s,
         quality=_quality(b, facts), warnings=_warnings(b, facts, bool(keylog or rsa_key), warnings), parts=parts)

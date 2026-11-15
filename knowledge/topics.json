@@ -1444,5 +1444,221 @@
         "4.2.2"
       ]
     ]
+  },
+  "capture_drops": {
+    "label": {
+      "en": "Capture drops",
+      "tr": "Capture kayıpları"
+    },
+    "meaning": {
+      "en": "The pcapng file records, for each interface, how many packets the interface and the operating system dropped before they reached the file. These packets crossed the network but are missing from the capture, so lost segments and gaps here say nothing about the path.",
+      "tr": "pcapng dosyası her arayüz için, dosyaya ulaşmadan önce arayüzün ve işletim sisteminin kaç paket düşürdüğünü kaydeder. Bu paketler ağdan geçti ama capture'da yok. Bu yüzden burada görülen kayıp segmentler ve boşluklar yol hakkında bir şey söylemez."
+    },
+    "checks": [
+      {
+        "en": "Capture again with a larger buffer, such as `tcpdump -B 65536`, and write to a fast local disk.",
+        "tr": "Daha büyük bir tamponla tekrar capture alın, örneğin `tcpdump -B 65536`, ve hızlı bir yerel diske yazın."
+      },
+      {
+        "en": "Narrow the capture with a filter and a snap length, such as `-s 256`, so less data has to be written.",
+        "tr": "Daha az veri yazılması için capture'ı bir filtre ve snap uzunluğuyla daraltın, örneğin `-s 256`."
+      }
+    ],
+    "sources": [
+      [
+        "pcapng",
+        "4.6"
+      ]
+    ]
+  },
+  "malformed": {
+    "label": {
+      "en": "Malformed packets",
+      "tr": "Bozuk paketler"
+    },
+    "meaning": {
+      "en": "A packet is malformed when its bytes do not fit the protocol, such as a length that runs past the end. A sender bug, a cut snap length, a middlebox that rewrites packets, or a protocol on a port where tshark expects another one can cause it.",
+      "tr": "Baytları protokole uymayan paket bozuktur, örneğin sonunu aşan bir uzunluk alanı. Gönderen taraftaki bir hata, kısa snap uzunluğu, paketleri yeniden yazan bir ara cihaz veya tshark'ın başka bir protokol beklediği porttaki bir protokol buna yol açabilir."
+    },
+    "checks": [
+      {
+        "en": "If the port carries another protocol than its usual one, analyze again with Decode As.",
+        "tr": "Port alışılmış protokolünden farklı bir protokol taşıyorsa, analizi Decode As ile tekrarlayın."
+      },
+      {
+        "en": "Open the frames in Wireshark and compare them with a capture taken nearer the sender.",
+        "tr": "Frame'leri Wireshark'ta açın ve gönderene daha yakın alınmış bir capture ile karşılaştırın."
+      }
+    ],
+    "sources": [
+      [
+        "wireshark_expert",
+        ""
+      ]
+    ]
+  },
+  "icmp_unreachable": {
+    "label": {
+      "en": "Destination unreachable",
+      "tr": "Hedefe ulaşılamıyor"
+    },
+    "meaning": {
+      "en": "ICMP destination unreachable says why a packet stopped: no route to the network or host, no program listening on a UDP port, or a firewall that forbids it. The code in each message tells these apart.",
+      "tr": "ICMP destination unreachable bir paketin neden durduğunu söyler: ağa veya host'a yol yok, UDP portunu dinleyen bir program yok veya bir firewall izin vermiyor. Her mesajdaki kod bunları birbirinden ayırır."
+    },
+    "checks": [
+      {
+        "en": "Port unreachable: check that the service runs and listens on that UDP port.",
+        "tr": "Port unreachable: servisin çalıştığını ve o UDP portunu dinlediğini kontrol edin."
+      },
+      {
+        "en": "Network or host unreachable: check routes, and in Kubernetes the Service endpoints.",
+        "tr": "Network veya host unreachable: route'ları, Kubernetes'te de Service endpoint'lerini kontrol edin."
+      },
+      {
+        "en": "Prohibited: a firewall or network policy refused the packet.",
+        "tr": "Prohibited: bir firewall veya network policy paketi reddetti."
+      }
+    ],
+    "sources": [
+      [
+        "rfc792",
+        ""
+      ],
+      [
+        "rfc4443",
+        "3.1"
+      ]
+    ]
+  },
+  "dns_errors": {
+    "label": {
+      "en": "DNS errors",
+      "tr": "DNS hataları"
+    },
+    "meaning": {
+      "en": "Every DNS answer carries a response code. No such name (NXDOMAIN) says the name does not exist, server failure (SERVFAIL) says the resolver could not get an answer, and refused says it would not answer this client. In Kubernetes, names tried with each search domain first get NXDOMAIN, which is normal.",
+      "tr": "Her DNS cevabı bir cevap kodu taşır. No such name (NXDOMAIN) adın olmadığını, server failure (SERVFAIL) resolver'ın cevap alamadığını, refused ise bu istemciye cevap vermeyeceğini söyler. Kubernetes'te her search domain ile denenen adlar önce NXDOMAIN alır, bu normaldir."
+    },
+    "checks": [
+      {
+        "en": "Many NXDOMAIN answers for names with a search domain added: lower `ndots`, or end the name with a dot.",
+        "tr": "Search domain eklenmiş adlar için çok sayıda NXDOMAIN: `ndots` değerini düşürün veya adı nokta ile bitirin."
+      },
+      {
+        "en": "SERVFAIL: check the resolver's upstream servers and DNSSEC validation.",
+        "tr": "SERVFAIL: resolver'ın üst sunucularını ve DNSSEC doğrulamasını kontrol edin."
+      }
+    ],
+    "sources": [
+      [
+        "rfc1035",
+        "4.1.1"
+      ],
+      [
+        "resolv_conf",
+        "ndots"
+      ]
+    ]
+  },
+  "tcp_flags_invalid": {
+    "label": {
+      "en": "Invalid TCP flags",
+      "tr": "Geçersiz TCP bayrakları"
+    },
+    "meaning": {
+      "en": "SYN with FIN or RST, a packet without any flag, or FIN without ACK break the TCP rules. They usually come from a port scanner, a broken middlebox or a fault in a traffic generator, and firewalls drop them.",
+      "tr": "FIN veya RST ile birlikte SYN, hiç bayrağı olmayan paket ya da ACK olmadan FIN TCP kurallarına aykırıdır. Bunlar çoğunlukla bir port tarayıcıdan, bozuk bir ara cihazdan veya bir trafik üretecindeki hatadan gelir ve firewall'lar bunları düşürür."
+    },
+    "checks": [
+      {
+        "en": "Find the sender of these packets and check whether a scan or a monitoring probe runs from there.",
+        "tr": "Bu paketleri gönderen adresi bulun ve oradan bir tarama veya izleme probe'u çalışıp çalışmadığına bakın."
+      }
+    ],
+    "sources": [
+      [
+        "rfc9293",
+        "3.1"
+      ],
+      [
+        "wireshark",
+        ""
+      ]
+    ]
+  },
+  "port_reused": {
+    "label": {
+      "en": "Port numbers reused",
+      "tr": "Port numaraları yeniden kullanıldı"
+    },
+    "meaning": {
+      "en": "A client picks a new source port for each connection. When it uses one again soon, the server or a firewall may still hold the old connection in TIME_WAIT or in its connection table, and drop or reset the new SYN. Behind NAT, many clients share few addresses, so this happens sooner.",
+      "tr": "İstemci her bağlantı için yeni bir kaynak portu seçer. Aynı portu kısa sürede tekrar kullanırsa, sunucu veya firewall eski bağlantıyı hâlâ TIME_WAIT durumunda ya da bağlantı tablosunda tutuyor olabilir ve yeni SYN'i düşürebilir veya reset'leyebilir. NAT arkasında birçok istemci az sayıda adresi paylaştığı için bu daha çabuk olur."
+    },
+    "checks": [
+      {
+        "en": "If SYNs to these ports were sent again or reset, widen the client's port range with `net.ipv4.ip_local_port_range`, or keep connections open longer.",
+        "tr": "Bu portlara giden SYN'ler tekrar gönderildiyse veya reset aldıysa, istemcinin port aralığını `net.ipv4.ip_local_port_range` ile genişletin veya bağlantıları daha uzun açık tutun."
+      },
+      {
+        "en": "Behind NAT, add source addresses to the NAT pool.",
+        "tr": "NAT arkasında NAT havuzuna kaynak adres ekleyin."
+      }
+    ],
+    "sources": [
+      [
+        "rfc9293",
+        "3.6.1"
+      ],
+      [
+        "linux_sysctl",
+        "ip_local_port_range"
+      ]
+    ]
+  },
+  "ecn_congestion": {
+    "label": {
+      "en": "Congestion marks",
+      "tr": "Tıkanıklık işaretleri"
+    },
+    "meaning": {
+      "en": "With ECN, a full queue marks a packet instead of dropping it. The receiver reports the mark with ECE, and the sender answers with CWR after it has cut its sending rate. It is not loss, but it shows a congested queue on the path, and transfers slow down as after a loss.",
+      "tr": "ECN ile dolu bir kuyruk paketi düşürmek yerine işaretler. Alıcı bu işareti ECE ile bildirir, gönderen de hızını düşürdükten sonra CWR ile cevap verir. Bu kayıp değildir ama yolda tıkanık bir kuyruk olduğunu gösterir ve aktarım bir kayıptan sonraki gibi yavaşlar."
+    },
+    "checks": [
+      {
+        "en": "Find the busy link: compare the throughput graph of these connections with the link speed and its queue counters.",
+        "tr": "Yoğun bağlantıyı bulun: bu bağlantıların throughput grafiğini hat hızı ve kuyruk sayaçlarıyla karşılaştırın."
+      }
+    ],
+    "sources": [
+      [
+        "rfc3168",
+        "6.1"
+      ]
+    ]
+  },
+  "sack_blocks": {
+    "label": {
+      "en": "Selective acknowledgments",
+      "tr": "Seçici onaylar"
+    },
+    "meaning": {
+      "en": "A SACK block in an ACK names data the receiver holds beyond a gap. The sender then resends only what is missing. SACK blocks show that recovery from loss or reordering was going on, even when the capture missed the lost segment itself.",
+      "tr": "ACK içindeki bir SACK bloğu, alıcının bir boşluğun ötesinde tuttuğu veriyi belirtir. Gönderen de sadece eksik olanı yeniden gönderir. SACK blokları, capture kaybolan segmentin kendisini kaçırmış olsa bile kayıptan veya sırasızlıktan kurtarma yapıldığını gösterir."
+    },
+    "checks": [
+      {
+        "en": "Open the connections with SACK blocks and check their Stevens graph for resent segments.",
+        "tr": "SACK bloğu olan bağlantıları açın ve Stevens grafiğinde yeniden gönderilen segmentlere bakın."
+      }
+    ],
+    "sources": [
+      [
+        "rfc2018",
+        "3"
+      ]
+    ]
   }
 }

@@ -35,6 +35,8 @@ SINGLE = [
     "tcp.stream", "tcp.srcport", "tcp.dstport", "tcp.seq", "tcp.seq_raw", "tcp.ack", "tcp.len", "ip.id", "tcp.flags", "tcp.window_size", "tcp.window_size_value",
     "tcp.options.mss_val", "tcp.options.wscale.shift", "tcp.options.sack_perm", "tcp.analysis.initial_rtt",
     "tcp.analysis.ack_rtt", "tcp.analysis.acks_frame", "dns.qry.name", "dns.time", "dns.flags.response", "ip.flags.mf", "icmp.type", "icmp.code",
+    "dns.flags.rcode", "icmpv6.type", "icmpv6.code", "_ws.malformed", "tcp.options.sack_le", "tcp.analysis.reused_ports",
+    "udp.srcport", "udp.dstport", "quic.connection.number", "quic.version", "quic.header_form",
 ]
 MULTI = [
     "http.request.method", "http.request.uri", "http.request.version", "http.host", "http.response.code",
@@ -44,8 +46,9 @@ MULTI = [
     "tls.handshake.extensions_server_name", "tls.handshake.extensions.supported_version",
     "http2.type", "http2.streamid", "http2.flags", "http2.length", "http2.header.count",
     "http2.header.name", "http2.header.value", "http.file_data", "tls.handshake.ciphersuite", "tls.handshake.extensions_alpn_str",
-    "tls.alert_message.desc", "x509af.utcTime",
+    "tls.alert_message.desc", "x509af.utcTime", "quic.stream.stream_id", "http3.frame_type",
 ]
+DECODE_AS = re.compile(r"(tcp|udp|sctp)\.port==(\d{1,5}),([a-z0-9][a-z0-9_.-]{0,31})")  # Wireshark's Decode As: a port read as another protocol
 PRIVATE_PATH = re.compile(r' ?"?/tmp/pcap-(?:analyzer|upload|export)-[^"\s]*"?')
 # Flags that tshark's TCP analysis sets on a packet. Stored as events.
 EVENTS = [
@@ -122,6 +125,18 @@ class Filter:
     start: float | None = None
     end: float | None = None
     display: str | None = None
+    decode_as: tuple = ()
+
+    def decode_args(self):
+        """tshark -d arguments. Each rule is checked, since it goes to tshark as written."""
+        args = []
+        for rule in self.decode_as:
+            m = DECODE_AS.fullmatch(rule.replace(" ", ""))
+            if not m or not 0 < int(m.group(2)) < 65536:
+                from . import knowledge
+                raise TsharkError(knowledge.t("Decode As rule is not valid: {rule}. Write it as tcp.port==8080,http", rule=rule))
+            args += ["-d", m.group(0)]
+        return args
 
     def expression(self):
         parts = []
@@ -140,6 +155,35 @@ class Filter:
         return " and ".join(parts) or None
 
 
+_unknown = {}  # fields each tshark refused: older versions lack some
+
+
+class UnknownFields(TsharkError):
+    """tshark refused the whole run because it does not know some fields. They are left out on the next try."""
+
+
+def _refused_fields(err, binary):
+    """The fields tshark names in "Some fields aren't valid", one per line after a tab."""
+    if "Some fields aren't valid" not in err:
+        return None
+    names = {line.strip() for line in err.split("Some fields aren't valid", 1)[1].splitlines()[1:] if line.startswith("\t") and line.strip()}
+    if not names:
+        return None
+    _unknown.setdefault(binary, set()).update(names)
+    return names
+
+
+def usable(names, binary="tshark"):
+    """The names this tshark has not refused before."""
+    gone = _unknown.get(binary, set())
+    return [n for n in names if n not in gone]
+
+
+def decode_rules(text):
+    """Decode As rules from one line, separated by ; or new lines."""
+    return tuple(r.strip() for r in re.split(r"[;\n]", text or "") if r.strip())
+
+
 def version(binary="tshark"):
     try:
         out = subprocess.run([binary, "--version"], capture_output=True, text=True, check=True).stdout
@@ -154,7 +198,7 @@ def version(binary="tshark"):
     return ".".join(map(str, found))
 
 
-def _command(binary, capture, keylog, rsa_key, expr):
+def _command(binary, capture, keylog, rsa_key, expr, decode=()):
     # Header reassembly stays off: it takes a body segment with no line end for a partial header and loses later responses.
     # A resend that was the first copy on the wire looks like a retransmission, and without this its HTTP head is not dissected.
     cmd = [binary, "-n", "-r", str(capture), "-o", "http.desegment_body:FALSE", "-o", "http.desegment_headers:FALSE",
@@ -164,9 +208,10 @@ def _command(binary, capture, keylog, rsa_key, expr):
         cmd += ["-o", f"tls.keylog_file:{keylog}"]
     if rsa_key:
         cmd += ["-o", f'uat:rsa_keys:"{rsa_key}",""']
+    cmd += list(decode)
     if expr:
         cmd += ["-Y", expr]
-    for f in FIELDS:
+    for f in usable(FIELDS, binary):
         cmd += ["-e", f]
     return cmd
 
@@ -317,9 +362,21 @@ def _pump(proc, feed):
 
 
 def packets(path, keylog=None, rsa_key=None, flt=None, binary="tshark", warnings=None, limit=None, workdir=None, seconds=0, feed=None):
-    """Yield packets as dicts. Non-fatal problems are appended to warnings. With feed, tshark reads the capture that feed() yields from a pipe instead of path."""
+    """Yield packets as dicts. Non-fatal problems are appended to warnings. With feed, tshark reads the capture that feed() yields from a pipe instead of path.
+    A field this tshark does not know is left out and the run starts again; tshark refuses it before it reads any packet."""
+    for _ in range(len(FIELDS)):
+        try:
+            yield from _packets(path, keylog, rsa_key, flt, binary, warnings, limit, workdir, seconds, feed)
+            return
+        except UnknownFields:
+            continue
+    raise TsharkError("tshark knows none of the fields it was asked for")
+
+
+def _packets(path, keylog, rsa_key, flt, binary, warnings, limit, workdir, seconds, feed):
     limit = limit or Limit()
     expr = flt.expression() if flt else None
+    decode = flt.decode_args() if flt else []
     with tempfile.TemporaryDirectory(prefix="pcap-analyzer-", dir="/tmp") as tmp:
         os.chmod(tmp, 0o700)
         capture = "-" if feed else _private_copy(path, tmp, "capture")
@@ -328,7 +385,7 @@ def packets(path, keylog=None, rsa_key=None, flt=None, binary="tshark", warnings
         env = dict(os.environ, LC_ALL="C")
         with tempfile.TemporaryFile(mode="w+", dir=tmp) as errfile:
             try:
-                cmd = _command(binary, capture, kl, rk, expr)
+                cmd = _command(binary, capture, kl, rk, expr, decode)
                 found = os.path.realpath(shutil.which(binary) or binary)
                 read, write = (), ()
                 if workdir and not found.startswith(("/tmp/", str(workdir))):  # a program kept there would disappear with them
@@ -347,11 +404,13 @@ def packets(path, keylog=None, rsa_key=None, flt=None, binary="tshark", warnings
             if pump:
                 pump.start()
             count = 0
+            names = usable(FIELDS, binary)
+            empty = dict.fromkeys(FIELDS, "")
             with proc.stdout:
                 for line in _lines(proc, limit):
                     vals = line.split("\t")
                     count += 1
-                    yield dict(zip(FIELDS, vals))
+                    yield {**empty, **dict(zip(names, vals))}
             code = proc.wait()
             if pump:
                 pump.join()
@@ -364,4 +423,60 @@ def packets(path, keylog=None, rsa_key=None, flt=None, binary="tshark", warnings
             if warnings is not None:
                 warnings.append("capture_truncated")
             return
+        if not count and _refused_fields(err, binary):
+            raise UnknownFields(err)
         raise TsharkError(err.splitlines()[-1] if err else f"tshark exited with code {code}")
+
+
+def run(capture, args, binary="tshark", workdir=None, seconds=0, limit=None, feed=None, collect=None, max_lines=None):
+    """Yield the output lines of tshark -n -r capture with more arguments, in the same sandbox as packets().
+    The arguments may name {out}, a folder in the private directory that tshark may write to, as --export-objects does,
+    and collect(folder) runs on it before the directory goes away. max_lines stops tshark after that many lines."""
+    limit = limit or Limit()
+    with tempfile.TemporaryDirectory(prefix="pcap-analyzer-", dir="/tmp") as tmp:
+        os.chmod(tmp, 0o700)
+        out = Path(tmp) / "out"
+        out.mkdir()
+        src = "-" if feed else _private_copy(capture, tmp, "capture")
+        cmd = [binary, "-n", "-r", str(src), *[a.replace("{out}", str(out)) for a in args]]
+        env = dict(os.environ, LC_ALL="C")
+        with tempfile.TemporaryFile(mode="w+", dir=tmp) as errfile:
+            try:
+                found = os.path.realpath(shutil.which(binary) or binary)
+                read, write = (), ()
+                if workdir and not found.startswith(("/tmp/", str(workdir))):
+                    if can_isolate():
+                        cmd = isolated(cmd, tmp, workdir)
+                    else:
+                        env["TMPDIR"] = tmp
+                        data = os.environ.get("WIRESHARK_DATA_DIR")
+                        read, write = (*SYSTEM_PATHS, os.path.dirname(os.path.dirname(found)), *([data] if data else [])), (tmp,)
+                proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if feed else subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=errfile, env=env,
+                                        preexec_fn=_limits(seconds, read, write))
+            except OSError as e:
+                raise TsharkError(f"tshark could not be started: {e}") from e
+            limit.attach(proc)
+            pump = threading.Thread(target=_pump, args=(proc, feed), daemon=True) if feed else None
+            if pump:
+                pump.start()
+            count, stopped = 0, False
+            with proc.stdout:
+                for line in _lines(proc, limit):
+                    count += 1
+                    if max_lines and count > max_lines:
+                        stopped = True
+                        limit._kill() if limit.proc is proc else proc.kill()
+                        break
+                    yield line
+            code = proc.wait()
+            if pump:
+                pump.join()
+            limit.check()
+            errfile.seek(0)
+            err = errfile.read().strip()
+            if code != 0 and not stopped and not ("cut short" in err and count):
+                if not count and _refused_fields(err, binary):
+                    raise UnknownFields(err)
+                raise TsharkError(err.splitlines()[-1] if err else f"tshark exited with code {code}")
+            if collect:
+                collect(out)

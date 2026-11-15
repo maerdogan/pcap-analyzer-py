@@ -13,21 +13,21 @@ Each [release](https://github.com/maerdogan/ai-pcap-analyzer-py-fastapi-htmx/rel
 From the registry:
 
 ```bash
-docker pull ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.6.1
-docker tag ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.6.1 pcap-analyzer:0.6.1
+docker pull ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.7.1
+docker tag ghcr.io/maerdogan/ai-pcap-analyzer-py-fastapi-htmx:0.7.1 pcap-analyzer:0.7.1
 ```
 
 From the release files, copied to the host:
 
 ```bash
 sha256sum --check --ignore-missing SHA256SUMS
-gunzip -c pcap-analyzer-0.6.1-image-amd64.tar.gz | docker load
+gunzip -c pcap-analyzer-0.7.1-image-amd64.tar.gz | docker load
 ```
 
 Or build it yourself:
 
 ```bash
-docker build -f docker/Containerfile -t pcap-analyzer:0.6.1 .
+docker build -f docker/Containerfile -t pcap-analyzer:0.7.1 .
 ```
 
 Then create the settings and a password hash:
@@ -35,7 +35,7 @@ Then create the settings and a password hash:
 ```bash
 cd docker
 cp .env.example .env
-docker run --rm -it pcap-analyzer:0.6.1 pcap-analyzer hash-password
+docker run --rm -it pcap-analyzer:0.7.1 pcap-analyzer hash-password
 ```
 
 Put the hash in `.env` in single quotes, as `PCAP_ANALYZER_ADMIN_PASSWORD_HASH='...'`, and start it:
@@ -53,7 +53,7 @@ Compose limits the app to 2 CPUs, 4 GiB of memory, 256 processes and 3 GiB in `/
 Push the image to your internal registry, then set the image and host names in `kubernetes/generic/`. Create the password hash on any machine with the image:
 
 ```bash
-docker run --rm -it pcap-analyzer:0.6.1 pcap-analyzer hash-password
+docker run --rm -it pcap-analyzer:0.7.1 pcap-analyzer hash-password
 ```
 
 ```bash
@@ -151,7 +151,8 @@ With a self-signed certificate, add `--cafile cert.pem`. On a server with only `
 | `PCAP_ANALYZER_MAX_SIZE_MB` | `1000` | Largest accepted capture. Captures over 100 MB are read in parts of whole connections |
 | `PCAP_ANALYZER_TTL_DAYS` | `7` | Days results are kept. The server removes older ones every hour |
 | `PCAP_ANALYZER_MAX_JOBS` | `2` | Analyses running at once |
-| `PCAP_ANALYZER_KEEP_CAPTURE` | `1` | Keep the capture for PCAP export, `0` to delete it after analysis |
+| `PCAP_ANALYZER_KEEP_CAPTURE` | `1` | Keep the capture for PCAP export, `0` to delete it after analysis. The Statistics tab, TCP graphs, Flow Graph, Follow Stream and Export Objects read the kept capture, so they need `1` |
+| `PCAP_ANALYZER_GEOIP_DIR` | none | A folder of MaxMind GeoLite2 `.mmdb` files. IP endpoints then show their country and AS number |
 | `PCAP_ANALYZER_LANGUAGE` | `tr` | Default language: `tr`, `en`, `de` or `es`. Each user can choose another in the app |
 | `PCAP_ANALYZER_ANALYSIS_TIMEOUT_S` | `600` | Longest analysis in seconds, `0` for no limit |
 | `PCAP_ANALYZER_KNOWLEDGE` | | Path of another knowledge file, built with `tools/build_knowledge.py` |

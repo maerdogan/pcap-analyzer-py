@@ -143,10 +143,30 @@
     <a href="/a/{{ a.id }}?tab=hosts" {% if current == "hosts" %}aria-current="page"{% endif %}>{{ _("Hosts") }}</a>
     <a href="/a/{{ a.id }}?tab=backends" {% if current == "backends" %}aria-current="page"{% endif %}>{{ _("Servers") }}</a>
     <a href="/a/{{ a.id }}?tab=tls" {% if current == "tls" %}aria-current="page"{% endif %}>TLS</a>
+    <a href="/a/{{ a.id }}?tab=stats" {% if current == "stats" %}aria-current="page"{% endif %}>{{ _("Statistics") }}</a>
     <a href="/a/{{ a.id }}/inspect" {% if current == "inspect" %}aria-current="page"{% endif %}>{{ _("Inspect traffic") }}</a>
   </nav>
   <form class="search" method="get" action="/a/{{ a.id }}/inspect" role="search">
     <input type="search" name="url" aria-label="{{ _("Search URLs in this capture") }}" placeholder="{{ _("Search URLs in this capture") }}">
   </form>
 </div>
+{% endmacro %}
+
+{% macro flow(f) %}
+{% set w = 170 %}{% set left = 120 %}{% set row = 26 %}
+{% set width = left + w * f.hosts | length %}
+<div class="flow-wrap"><svg class="flow" viewBox="0 0 {{ width + 40 }} {{ 40 + row * f.rows | length }}" width="{{ width + 40 }}" role="img" aria-label="{{ _("Flow graph") }}">
+  {% for h in f.hosts %}{% set x = left + w * loop.index0 + w / 2 %}
+  <text x="{{ x }}" y="16" text-anchor="middle" class="host">{{ h }}</text>
+  <line x1="{{ x }}" y1="24" x2="{{ x }}" y2="{{ 32 + row * f.rows | length }}" class="life"/>
+  {% endfor %}
+  {% for r in f.rows %}{% set y = 40 + row * loop.index0 %}
+  {% set x1 = left + w * f.hosts.index(r.src) + w / 2 %}{% set x2 = left + w * f.hosts.index(r.dst) + w / 2 %}
+  <text x="4" y="{{ y + 4 }}" class="time">{{ "%.6f" | format(r.t) }}</text>
+  <line x1="{{ x1 }}" y1="{{ y }}" x2="{{ x2 }}" y2="{{ y }}" class="msg" marker-end="url(#arrow)"/>
+  <text x="{{ (x1 + x2) / 2 }}" y="{{ y - 4 }}" text-anchor="middle" class="info"><title>{{ r.frame }}: {{ r.protocol }} {{ r.info }}</title>{{ (r.protocol ~ " " ~ r.info) | truncate(44, True, "…") }}</text>
+  {% endfor %}
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="head"/></marker></defs>
+</svg></div>
+{% if f.cut %}<p class="hint">{{ _("Only the first {n} packets are shown. Narrow the filter to see others.", n=f.rows | length) }}</p>{% endif %}
 {% endmacro %}
