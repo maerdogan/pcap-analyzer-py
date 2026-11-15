@@ -15,6 +15,11 @@ All changes made on the same day are one minor version.
 
 - tshark is asked only for fields it knows, so a tshark that lacks a newer field still analyzes the capture and leaves that value empty.
 - `kubernetes/vks` targets the platform's `analyzers` cluster and its `dump-analyzers` namespace.
+- `tools/smoke.py` also opens the Statistics tab, the flow graph, Follow TCP stream and the TCP graphs.
+
+### Fixed
+
+- The release workflow made its SBOM with cyclonedx-bom 5.0.0, which cannot be installed on Python 3.14 of the newer GitHub runners. It uses 7.6.0 now.
 
 ## 0.7.0 (2026-11-15)
 

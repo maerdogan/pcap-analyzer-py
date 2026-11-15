@@ -18,7 +18,8 @@ import urllib.parse
 import urllib.request
 import uuid
 
-TABS = ("overview", "issues", "urls", "connections", "hosts", "backends")
+TABS = ("overview", "issues", "urls", "connections", "hosts", "backends", "tls", "stats")
+PACKET_VIEWS = ("stats/overview", "stats/services", "stats/voip", "stats/io?filter=tcp", "flow?filter=tcp", "objects")  # these read the kept capture again
 TABLES = ("requests", "urls", "connections", "hosts", "issues")
 FORMATS = ("csv", "json", "xlsx")
 ANALYSIS_LIMIT_S = 180
@@ -125,8 +126,19 @@ def walk(b, user, password, capture):
                 raise Failed(f"{name}.{fmt} is empty")
     _, report = b.call(f"/export/{aid}/report.html")
     _, connections = b.call(f"/api/a/{aid}/connections")
-    _, packets = b.call(f"/export/{aid}/conn/{json.loads(connections)[0]['stream']}.pcapng")
+    stream = json.loads(connections)[0]["stream"]
+    _, packets = b.call(f"/export/{aid}/conn/{stream}.pcapng")
     print(f"exports done, report {len(report)} bytes, connection {len(packets)} bytes")
+
+    for view in PACKET_VIEWS:
+        _, body = b.call(f"{home}/{view}")
+        if b'class="error"' in body:
+            raise Failed(f"{view} shows an error: {body[:300]!r}")
+    _, follow = b.call(f"{home}/conn/{stream}/follow")
+    _, graph = b.call(f"/api/a/{aid}/tcpgraph/{stream}")
+    if b"side-0" not in follow or not json.loads(graph)["sides"]:
+        raise Failed("Follow TCP stream or the TCP graphs are empty")
+    print("statistics, flow graph, Follow TCP stream and TCP graphs done")
 
     b.form(f"{home}/delete", dict(csrf_token=token))
     b.call(home, expect=404)
