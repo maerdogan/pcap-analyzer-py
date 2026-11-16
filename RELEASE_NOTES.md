@@ -2,6 +2,14 @@
 
 All changes made on the same day are one minor version.
 
+## 0.7.6 (2026-11-16)
+
+### Added
+
+- Inspect traffic lists the 10 most called flows under the filter, as source ip:port → destination ip:port, ranked by HTTP requests, or by packets where no request was read. Selecting one fills the filter with its two ends and inspects it.
+- A source port field in the inspect filter and in saved filters.
+- By URL on the inspect page shows the total time spent on each URL shape, and every column sorts when its title is selected.
+
 ## 0.7.5 (2026-11-15)
 
 ### Added

@@ -364,3 +364,17 @@ form.inline label.wide { flex: 1; min-width: 220px; display: grid; gap: 4px; }
 .packets tr.from-client td:first-child { box-shadow: inset 3px 0 #c8324a; }
 .packets tr.from-server td:first-child { box-shadow: inset 3px 0 #3347ee; }
 .packets tr.marked { background: #fff6e5; }
+
+/* Most called flows on the inspect page */
+.top-flows { margin: 14px 0 4px; }
+.top-flows h3 { margin: 0 0 4px; font-size: 15px; }
+.top-flows ul { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.flow-pick { width: 100%; display: flex; justify-content: space-between; gap: 10px; align-items: center; text-align: left; padding: 8px 10px; border: 1px solid #e4e8ee; border-radius: 8px; background: #fff; cursor: pointer; }
+.flow-pick:hover, .flow-pick[aria-current] { border-color: #3347ee; background: #f2f4ff; }
+.flow-pick code { font-size: 12.5px; }
+
+/* Sortable plain tables */
+th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sortable::after { content: " ↕"; color: #9aa1ad; font-size: 11px; }
+th.sortable[aria-sort="ascending"]::after { content: " ▲"; color: #3347ee; }
+th.sortable[aria-sort="descending"]::after { content: " ▼"; color: #3347ee; }

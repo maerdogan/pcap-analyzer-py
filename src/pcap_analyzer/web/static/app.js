@@ -211,10 +211,51 @@
     });
   }
 
+  // Plain tables marked data-sortable: a column title sorts by that column, and again in the other direction.
+  // Cells may carry data-value, the raw number behind a formatted value such as "1.2 s".
+  function setupSorting(root) {
+    root.querySelectorAll("table[data-sortable]").forEach((table) => {
+      if (table.dataset.ready) return;
+      table.dataset.ready = "1";
+      table.querySelectorAll("th[data-sort]").forEach((th, col) => {
+        th.tabIndex = 0;
+        th.classList.add("sortable");
+        const sort = () => {
+          const down = th.getAttribute("aria-sort") !== "descending";
+          table.querySelectorAll("th[aria-sort]").forEach((o) => o.removeAttribute("aria-sort"));
+          th.setAttribute("aria-sort", down ? "descending" : "ascending");
+          const key = (row) => {
+            const cell = row.cells[col];
+            if (th.dataset.sort === "num") return parseFloat(cell.dataset.value ?? cell.textContent) || 0;
+            return cell.textContent.trim().toLowerCase();
+          };
+          const body = table.tBodies[0];
+          [...body.rows].sort((a, b) => {
+            const x = key(a), y = key(b);
+            return (x < y ? -1 : x > y ? 1 : 0) * (down ? -1 : 1);
+          }).forEach((row) => body.append(row));
+        };
+        th.addEventListener("click", sort);
+        th.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sort(); } });
+      });
+    });
+  }
+
   function setup(root) {
+    setupSorting(root);
     setupGrids(root);
     setupCharts(root);
     root.querySelectorAll("[data-submit]").forEach((el) => el.addEventListener("change", () => el.form.submit()));
+    // A most called flow fills the inspect filter with its two ends and runs it; other fields are cleared so the flow alone decides.
+    root.querySelectorAll(".flow-pick").forEach((b) => b.addEventListener("click", () => {
+      const form = document.getElementById("f");
+      if (!form) return;
+      const set = (name, value) => { const el = form.elements[name]; if (el) el.value = value; };
+      ["url", "min_size", "kind"].forEach((n) => set(n, ""));
+      set("src", b.dataset.src); set("src_port", b.dataset.srcPort); set("dst", b.dataset.dst); set("port", b.dataset.port);
+      document.querySelectorAll(".flow-pick").forEach((o) => o.toggleAttribute("aria-current", o === b));
+      form.requestSubmit();
+    }));
   }
   document.addEventListener("DOMContentLoaded", () => {
     setup(document);

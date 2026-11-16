@@ -452,7 +452,7 @@ def create_app(settings=None, https=False):
             _bad(knowledge.t("Size type is not valid."))
         return reports.Inspect((q.get("src") or "").strip() or None, (q.get("dst") or "").strip() or None, _opt_int(q.get("port"), "Port"),
                                q.get("kind") or None, (q.get("url") or "").strip() or None, _opt_int(q.get("min_size"), "Size"), size_of,
-                               _opt_float(q.get("start")), _opt_float(q.get("end")))
+                               _opt_float(q.get("start")), _opt_float(q.get("end")), _opt_int(q.get("src_port"), "Source port"))
 
     @app.get("/a/{aid}/inspect", response_class=HTMLResponse)
     def inspect(request: Request, aid: str):
@@ -463,7 +463,8 @@ def create_app(settings=None, https=False):
             r = reports.inspect(db, f)
             pairs = reports.rows(db, """SELECT DISTINCT client_ip, server_ip, server_port, kind, count(*) AS connections
                 FROM tcp_connections GROUP BY ALL ORDER BY connections DESC LIMIT 200""")
-        ctx = dict(r=r, q=q, query=str(request.url.query), pairs=pairs, kinds=sorted({p["kind"] for p in pairs}), filters=saved.load(settings), **capture_ctx(a))
+            flows = reports.top_flows(db, f.start, f.end)
+        ctx = dict(r=r, q=q, flows=flows, query=str(request.url.query), pairs=pairs, kinds=sorted({p["kind"] for p in pairs}), filters=saved.load(settings), **capture_ctx(a))
         return page(request, "_inspect_results.html" if is_htmx(request) else "inspect.html", **ctx)
 
     @app.post("/filters")
@@ -486,7 +487,7 @@ def create_app(settings=None, https=False):
         return RedirectResponse(back if back.startswith("/a/") else "/", 303)
 
     def side_filter(q, suffix):
-        return inspect_filter({k: q.get(k + suffix) for k in ("src", "dst", "port", "kind", "url", "min_size", "size_of")})
+        return inspect_filter({k: q.get(k + suffix) for k in saved.FIELDS})
 
     @app.get("/compare", response_class=HTMLResponse)
     def compare_page(request: Request):

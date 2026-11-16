@@ -588,5 +588,11 @@
   "retransmission": "yeniden iletim",
   "stream": "akış",
   "window full": "pencere dolu",
-  "zero window": "sıfır pencere"
+  "zero window": "sıfır pencere",
+  "Most called flows": "En çok çağrılan akışlar",
+  "Source port": "Kaynak port",
+  "Source to destination with the most HTTP requests, or the most packets where no request was read. Select one to fill the filter and inspect it.": "En çok HTTP isteği olan kaynak → hedef akışları; istek okunamayanlarda en çok paket. Birini seçince filtre doldurulur ve incelenir.",
+  "{n} packets": "{n} paket",
+  "Total time": "Toplam süre",
+  "Select a column title to sort by it, and again to turn the order around.": "Sıralamak için bir sütun başlığını seçin; sırayı ters çevirmek için yeniden seçin."
 }

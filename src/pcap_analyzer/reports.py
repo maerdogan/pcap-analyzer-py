@@ -13,7 +13,7 @@ UNANSWERED = "(NOT {t}answered AND {t}cause <> 'capture_end')"  # a request the 
 TIME_STATS = """count(*) AS requests, count(*) FILTER ({ok}) AS ok,
     count(*) FILTER (status >= 400 OR {unanswered}) AS failed, avg(total) AS avg_total,
     median(total) AS p50_total, quantile_cont(total, 0.95) AS p95_total, max(total) AS max_total,
-    avg(wait) AS avg_wait, avg(service) AS avg_service, avg(transfer) AS avg_transfer,
+    sum(total) AS sum_total, avg(wait) AS avg_wait, avg(service) AS avg_service, avg(transfer) AS avg_transfer,
     sum(resp_bytes) AS resp_bytes""".format(ok=SUCCESS, unanswered=UNANSWERED.format(t=""))
 TOP_DEFAULT = 5
 TOP_PERCENT = 0.10
@@ -193,6 +193,7 @@ class Inspect:
     size_of: str = "total"  # total, request, response, packet
     start: float | None = None
     end: float | None = None
+    src_port: int | None = None
 
 
 SIZE_SQL = {"total": "coalesce(t.req_bytes, 0) + coalesce(t.resp_bytes, 0)", "request": "t.req_bytes", "response": "t.resp_bytes",
@@ -216,6 +217,9 @@ def conn_where(f):
     if f.port is not None:
         sql.append("c.server_port = ?")
         params.append(f.port)
+    if f.src_port is not None:
+        sql.append("c.client_port = ?")
+        params.append(f.src_port)
     if f.kind:
         sql.append("c.kind = ?")
         params.append(f.kind)
@@ -255,6 +259,18 @@ def inspect(db, f):
     return dict(requests=stats, connections=conns,
                 causes=rows(db, f"SELECT t.cause, count(*) AS requests, avg(t.total) AS avg_total {join}{twhere} GROUP BY 1 ORDER BY 2 DESC", tp),
                 urls=_groups(db, tw, tp), slowest=slowest(db, tw, tp))
+
+
+TOP_FLOWS = 10
+
+
+def top_flows(db, start=None, end=None, limit=TOP_FLOWS):
+    """The source ip:port to destination ip:port pairs with the most calls: HTTP requests, or packets where none were read."""
+    cw, cp = conn_where(Inspect(start=start, end=end))
+    where = f" WHERE {' AND '.join(cw)}" if cw else ""
+    return rows(db, f"""SELECT c.stream, c.client_ip, c.client_port, c.server_ip, c.server_port, c.kind, count(t.id) AS requests, c.packets
+        FROM tcp_connections c LEFT JOIN http_transactions t USING (stream){where}
+        GROUP BY ALL ORDER BY requests DESC, c.packets DESC, c.stream LIMIT ?""", cp + [limit])
 
 
 def _groups(db, tw, tp):

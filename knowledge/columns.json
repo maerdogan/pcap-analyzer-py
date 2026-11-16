@@ -1,6 +1,7 @@
 {
   "answered": "Answered",
   "avg_service": "Average service",
+  "sum_total": "Total time",
   "avg_total": "Average",
   "avg_transfer": "Average transfer",
   "avg_wait": "Average server wait",

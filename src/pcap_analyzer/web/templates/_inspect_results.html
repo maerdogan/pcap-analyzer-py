@@ -17,10 +17,13 @@
 {% if r.urls %}
 <section class="panel flush">
   <h2>{{ _("By URL") }}</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>{{ _("Method") }}</th><th>URL</th><th class="num">{{ _("Requests") }}</th><th class="num">{{ _("Failed") }}</th><th class="num">{{ _("Average") }}</th><th class="num">{{ _("95th percentile") }}</th><th class="num">{{ _("Slowest") }}</th><th>{{ _("Status") }}</th></tr></thead>
+  <p class="hint pad">{{ _("Select a column title to sort by it, and again to turn the order around.") }}</p>
+  <div class="table-wrap"><table data-sortable>
+    <thead><tr><th data-sort="text">{{ _("Method") }}</th><th data-sort="text">URL</th><th class="num" data-sort="num">{{ _("Requests") }}</th><th class="num" data-sort="num">{{ _("Failed") }}</th><th class="num" data-sort="num">{{ _("Total time") }}</th><th class="num" data-sort="num">{{ _("Average") }}</th><th class="num" data-sort="num">{{ _("95th percentile") }}</th><th class="num" data-sort="num">{{ _("Slowest") }}</th><th data-sort="text">{{ _("Status") }}</th></tr></thead>
     <tbody>{% for u in r.urls %}
-      <tr><td>{{ u.method }}</td><td>{{ u.url }}</td><td class="num">{{ u.requests }}</td><td class="num">{{ u.failed }}</td><td class="num">{{ u.avg_total | seconds }}</td><td class="num">{{ u.p95_total | seconds }}</td><td class="num">{{ u.max_total | seconds }}</td>
+      <tr><td>{{ u.method }}</td><td>{{ u.url }}</td><td class="num" data-value="{{ u.requests }}">{{ u.requests }}</td><td class="num" data-value="{{ u.failed }}">{{ u.failed }}</td>
+      <td class="num" data-value="{{ u.sum_total if u.sum_total is not none else -1 }}">{{ u.sum_total | seconds }}</td><td class="num" data-value="{{ u.avg_total if u.avg_total is not none else -1 }}">{{ u.avg_total | seconds }}</td>
+      <td class="num" data-value="{{ u.p95_total if u.p95_total is not none else -1 }}">{{ u.p95_total | seconds }}</td><td class="num" data-value="{{ u.max_total if u.max_total is not none else -1 }}">{{ u.max_total | seconds }}</td>
       <td>{% for s in u.statuses %}{{ s.status or _("none") }} ×{{ s.requests }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>
     {% endfor %}</tbody>
   </table></div>

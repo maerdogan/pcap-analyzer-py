@@ -923,5 +923,11 @@
   "retransmission": "retransmisión",
   "stream": "flujo",
   "window full": "ventana llena",
-  "zero window": "ventana cero"
+  "zero window": "ventana cero",
+  "Most called flows": "Flujos más llamados",
+  "Source port": "Puerto de origen",
+  "Source to destination with the most HTTP requests, or the most packets where no request was read. Select one to fill the filter and inspect it.": "Origen a destino con más peticiones HTTP, o más paquetes donde no se leyó ninguna petición. Elija uno para rellenar el filtro e inspeccionarlo.",
+  "{n} packets": "{n} paquetes",
+  "Total time": "Tiempo total",
+  "Select a column title to sort by it, and again to turn the order around.": "Elija el título de una columna para ordenar por ella, y de nuevo para invertir el orden."
 }

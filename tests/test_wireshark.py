@@ -1,4 +1,5 @@
 """Views that match Wireshark's expert information, statistics, Decode As, Follow Stream and Export Objects."""
+import re
 import struct
 import subprocess
 
@@ -313,3 +314,39 @@ def test_web_connection_views(client, samples):  # noqa: F811
     assert "GET /api/users/123 HTTP/1.1" in http and "HTTP/1.1 200 OK" in http and f"/a/{aid}/txn/" in http
     assert client.get(f"/a/{aid}/conn/0/follow?mode=nope").status_code == 404
     assert client.get(f"/a/{aid}/conn/99999/follow?mode=http").status_code == 404
+
+
+def test_most_called_flows(samples, settings):
+    a = engine.analyze(samples / "http_scenarios.pcap", settings=settings)
+    with a.connect() as db:
+        flows = reports.top_flows(db)
+        most = db.execute("""SELECT c.client_port, count(*) FROM http_transactions t JOIN tcp_connections c USING (stream)
+            GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 1""").fetchone()
+        one = reports.inspect(db, reports.Inspect(src=flows[0]["client_ip"], src_port=flows[0]["client_port"], dst=flows[0]["server_ip"], port=flows[0]["server_port"]))
+    assert 0 < len(flows) <= 10 and [f["requests"] for f in flows] == sorted((f["requests"] for f in flows), reverse=True)
+    assert flows[0]["requests"] == most[1]
+    assert one["connections"]["connections"] == 1 and one["requests"]["requests"] == flows[0]["requests"]
+
+
+def test_web_most_called_flows(client, samples):  # noqa: F811
+    url = upload(client, samples / "http_scenarios.pcap")
+    aid = url.rsplit("/", 1)[1]
+    page = client.get(f"/a/{aid}/inspect").text
+    assert "Most called flows" in page and page.count('class="flow-pick"') == min(10, page.count('class="flow-pick"')) > 0
+    first = re.search(r'data-src="([\d.]+)" data-src-port="(\d+)" data-dst="([\d.]+)" data-port="(\d+)"', page).groups()
+    assert f"{first[0]}:{first[1]} → {first[2]}:{first[3]}" in page
+    r = client.get(f"/a/{aid}/inspect", params=dict(src=first[0], src_port=first[1], dst=first[2], port=first[3]), headers={"HX-Request": "true"})
+    assert r.status_code == 200 and 'class="error"' not in r.text
+    assert client.get(f"/a/{aid}/inspect", params=dict(src_port="x")).status_code == 400
+
+
+def test_url_total_time_and_sorting(client, samples, settings):  # noqa: F811
+    url = upload(client, samples / "http_scenarios.pcap")
+    aid = url.rsplit("/", 1)[1]
+    page = client.get(f"/a/{aid}/inspect").text
+    assert "Total time" in page and "<table data-sortable>" in page and page.count('data-sort="num"') == 6
+    with engine.open_analysis(aid, settings).connect() as db:
+        groups = reports.url_groups(db)
+        total = db.execute("SELECT sum(total) FROM http_transactions").fetchone()[0]
+    assert sum(g["sum_total"] or 0 for g in groups) == pytest.approx(total)
+    assert all(f'data-value="{g["sum_total"]}"' in page for g in groups if g["sum_total"] is not None)

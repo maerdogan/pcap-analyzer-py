@@ -4,7 +4,7 @@ import os
 import secrets
 import threading
 
-FIELDS = ("src", "dst", "port", "kind", "url", "min_size", "size_of")
+FIELDS = ("src", "src_port", "dst", "port", "kind", "url", "min_size", "size_of")
 _lock = threading.Lock()
 
 

@@ -923,5 +923,11 @@
   "retransmission": "Neuübertragung",
   "stream": "Stream",
   "window full": "Fenster voll",
-  "zero window": "Nullfenster"
+  "zero window": "Nullfenster",
+  "Most called flows": "Am häufigsten aufgerufene Flüsse",
+  "Source port": "Quellport",
+  "Source to destination with the most HTTP requests, or the most packets where no request was read. Select one to fill the filter and inspect it.": "Quelle zu Ziel mit den meisten HTTP-Anfragen, oder den meisten Paketen, wo keine Anfrage gelesen wurde. Wählen Sie einen aus, um den Filter zu füllen und ihn zu untersuchen.",
+  "{n} packets": "{n} Pakete",
+  "Total time": "Gesamtzeit",
+  "Select a column title to sort by it, and again to turn the order around.": "Wählen Sie einen Spaltentitel, um danach zu sortieren, und erneut, um die Reihenfolge umzukehren."
 }
