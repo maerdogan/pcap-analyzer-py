@@ -14,7 +14,7 @@ from pathlib import Path
 from . import knowledge, privacy, split, tshark
 
 AGG = tshark.AGG
-VERSION = 1  # saved statistics of an older layout are made again
+VERSION = 3  # saved statistics of an older layout are made again
 SIZE_BUCKETS = (0, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120)  # the bins of Wireshark's Packet Lengths
 IO_POINTS = 300
 IO_STEPS = (0.001, 0.01, 0.1, 0.5, 1, 5, 10, 30, 60, 300, 600, 3600)
@@ -528,7 +528,21 @@ def object_path(a, name):
 # --- Every packet of one connection, in order ---
 
 PACKET_ROWS = 5000
-PACKET_FIELDS = ["frame.number", "frame.time_epoch", "ip.src", "ipv6.src", "tcp.srcport", "tcp.flags.str", "tcp.seq", "tcp.ack", "tcp.len",
+# TCP flags by their standard names, in the order people read them, such as SYN, ACK.
+TCP_FLAGS = [(0x02, "SYN"), (0x10, "ACK"), (0x08, "PSH"), (0x01, "FIN"), (0x04, "RST"), (0x20, "URG"), (0x40, "ECE"), (0x80, "CWR")]
+FLAG_MEANINGS = {
+    "SYN": "opens a connection", "ACK": "acknowledges data received", "PSH": "hands the data to the application at once",
+    "FIN": "ends sending, a normal close", "RST": "breaks the connection off at once", "URG": "marks urgent data",
+    "ECE": "reports congestion on the path", "CWR": "the sender slowed down after congestion",
+}
+
+
+def flag_names(value):
+    bits = int(value, 0) if value else 0
+    return [name for bit, name in TCP_FLAGS if bits & bit]
+
+
+PACKET_FIELDS = ["frame.number", "frame.time_epoch", "ip.src", "ipv6.src", "tcp.srcport", "tcp.flags", "tcp.seq", "tcp.ack", "tcp.len",
                  "tcp.window_size", "_ws.col.protocol", "_ws.col.info", "tcp.analysis.retransmission", "tcp.analysis.fast_retransmission",
                  "tcp.analysis.out_of_order", "tcp.analysis.duplicate_ack", "tcp.analysis.lost_segment", "tcp.analysis.ack_lost_segment",
                  "tcp.analysis.zero_window", "tcp.analysis.window_full", "tcp.analysis.keep_alive"]
@@ -550,7 +564,7 @@ def packets(a, settings, stream):
                 continue
             side = f"{_last(p['ip.src']) or _last(p['ipv6.src'])}:{p['tcp.srcport']}"
             client = client or side
-            rows.append(dict(frame=src.frame(part, int(p["frame.number"])), t=t, from_client=side == client, flags=(p["tcp.flags.str"] or "").replace("·", "").strip(),
+            rows.append(dict(frame=src.frame(part, int(p["frame.number"])), t=t, from_client=side == client, flags=flag_names(p["tcp.flags"]),
                              seq=_num(p["tcp.seq"], int), ack=_num(p["tcp.ack"], int), len=_num(p["tcp.len"], int) or 0, win=_num(p["tcp.window_size"], int),
                              protocol=p["_ws.col.protocol"], info=privacy.mask_uri(p["_ws.col.info"] or "")[:300],
                              marks=[label for name, label in PACKET_MARKS if p.get(name)]))
@@ -559,8 +573,37 @@ def packets(a, settings, stream):
         start = rows[0]["t"] if rows else 0
         for r in rows:
             r["t"] = r["t"] - start
-        return dict(rows=rows, cut=cut, limit=PACKET_ROWS)
+        seen = {f for r in rows for f in r["flags"]}
+        legend = [dict(flag=name, meaning=FLAG_MEANINGS[name]) for _, name in TCP_FLAGS if name in seen]
+        return dict(rows=rows, cut=cut, limit=PACKET_ROWS, legend=legend, start=start)
     return cached(a, f"packets-{int(stream)}", make)
+
+
+def request_packets(a, settings, t):
+    """The packets of one HTTP request, from the connection's handshake when the request opened it, or from its own
+    first packet, to the last packet of its response and the client's acknowledgment of it."""
+    whole = packets(a, settings, t["stream"])
+    rows = whole["rows"]
+    if not rows:
+        return dict(whole, rows=[], legend=[])
+    start = whole["start"]
+    end = t.get("resp_end") or t.get("req_end") or t["req_start"]
+    first = 0 if t.get("new_conn") else next((i for i, r in enumerate(rows) if r["frame"] >= t["req_frame"]), len(rows))
+    last = first
+    for i in range(first, len(rows)):
+        if start + rows[i]["t"] <= end + 1e-6:
+            last = i
+        else:
+            break
+    if last + 1 < len(rows) and rows[last + 1]["from_client"] and rows[last + 1]["flags"] == ["ACK"] and not rows[last + 1]["len"]:
+        last += 1  # the client's acknowledgment closes the exchange
+    picked = [dict(r) for r in rows[first:last + 1]]
+    t0 = picked[0]["t"] if picked else 0
+    for r in picked:
+        r["t"] -= t0
+    seen = {f for r in picked for f in r["flags"]}
+    legend = [dict(flag=name, meaning=FLAG_MEANINGS[name]) for _, name in TCP_FLAGS if name in seen]
+    return dict(rows=picked, cut=whole["cut"] and last + 1 >= len(rows), limit=whole["limit"], legend=legend, start=start + t0)
 
 
 # --- Follow HTTP stream, from the requests the analysis kept ---

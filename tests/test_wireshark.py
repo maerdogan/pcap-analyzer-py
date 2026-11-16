@@ -270,7 +270,8 @@ def test_every_packet_of_a_connection(samples, settings):
     rows = p["rows"]
     assert len(rows) == count and not p["cut"]
     assert [r["frame"] for r in rows] == sorted(r["frame"] for r in rows)
-    assert rows[0]["t"] == 0 and rows[0]["from_client"] and rows[0]["flags"] == "S" and not rows[1]["from_client"]
+    assert rows[0]["t"] == 0 and rows[0]["from_client"] and rows[0]["flags"] == ["SYN"] and rows[1]["flags"] == ["SYN", "ACK"] and not rows[1]["from_client"]
+    assert [x["flag"] for x in p["legend"]][:2] == ["SYN", "ACK"] and all(x["meaning"] for x in p["legend"])
     assert any("GET /api/users/123" in r["info"] for r in rows)
 
 
@@ -350,3 +351,26 @@ def test_url_total_time_and_sorting(client, samples, settings):  # noqa: F811
         total = db.execute("SELECT sum(total) FROM http_transactions").fetchone()[0]
     assert sum(g["sum_total"] or 0 for g in groups) == pytest.approx(total)
     assert all(f'data-value="{g["sum_total"]}"' in page for g in groups if g["sum_total"] is not None)
+
+
+def test_packets_of_one_request(samples, settings):
+    a = engine.analyze(samples / "http_scenarios.pcap", settings=settings)
+    with a.connect() as db:
+        txns = [dict(zip(("id", "stream", "req_frame", "req_start", "req_end", "resp_end", "new_conn", "uri"), r)) for r in db.execute(
+            "SELECT id, stream, req_frame, req_start, req_end, resp_end, new_conn, uri FROM http_transactions WHERE stream = 0 ORDER BY req_start").fetchall()]
+    first, second = txns[0], txns[1]
+    one = stats.request_packets(a, settings, first)["rows"]
+    two = stats.request_packets(a, settings, second)["rows"]
+    assert first["new_conn"] and one[0]["flags"] == ["SYN"] and one[0]["t"] == 0
+    assert any(first["uri"] in r["info"] for r in one) and not any(second["uri"] in r["info"] for r in one)
+    assert not second["new_conn"] and two[0]["frame"] == second["req_frame"] and any(second["uri"] in r["info"] for r in two)
+    assert one[-1]["frame"] < two[0]["frame"]
+
+
+def test_web_request_packets(client, samples):  # noqa: F811
+    url = upload(client, samples / "http_scenarios.pcap")
+    aid = url.rsplit("/", 1)[1]
+    assert f"/a/{aid}/txn/1/packets" in client.get(f"/a/{aid}/txn/1").text
+    body = client.get(f"/a/{aid}/txn/1/packets").text
+    assert "Client → server" in body and 'class="error"' not in body
+    assert client.get(f"/a/{aid}/txn/999999/packets").status_code == 404

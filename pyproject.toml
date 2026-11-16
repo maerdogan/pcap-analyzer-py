@@ -33,7 +33,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "pcap_analyzer" = ["knowledge.bin"]
-"pcap_analyzer.web" = ["templates/*.html", "static/*", "static/vendor/*"]
+"pcap_analyzer.web" = ["templates/*.html", "static/*", "static/vendor/*", "static/brand/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

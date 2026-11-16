@@ -1,6 +1,28 @@
 {% macro mark() %}
-<svg class="mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><rect x="2" y="4" width="11" height="4"/><rect x="2" y="10" width="20" height="4"/><rect x="2" y="16" width="6" height="4"/></svg>
+<img class="mark" src="/static/brand/logo.png" alt="PCAP Analyzer" width="220" height="80">
 {% endmacro %}
+
+{% macro icon(name) %}
+{%- set paths = {
+  "captures": '<path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>',
+  "compare": '<rect x="3" y="4" width="7" height="16" rx="1.5"/><rect x="14" y="4" width="7" height="16" rx="1.5"/>',
+  "trend": '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  "guide": '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
+  "preferences": '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+  "overview": '<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
+  "issues": '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.5v.01"/>',
+  "urls": '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  "connections": '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  "hosts": '<rect x="4" y="4" width="16" height="7" rx="1.5"/><rect x="4" y="13" width="16" height="7" rx="1.5"/><path d="M8 7.5h.01M8 16.5h.01"/>',
+  "backends": '<ellipse cx="12" cy="6" rx="7" ry="2.5"/><path d="M5 6v12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/>',
+  "tls": '<rect x="5" y="11" width="14" height="9" rx="1.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  "stats": '<path d="M4 20h16M7 16v-5M12 16V6M17 16v-8"/>',
+  "inspect": '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/>',
+  "menu": '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  "logout": '<path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10"/>',
+} -%}
+<svg class="icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">{{ paths[name] | safe }}</svg>
+{%- endmacro %}
 
 {% macro strip(phases) %}
 {% set total = phases | sum(attribute="seconds") %}
@@ -24,17 +46,32 @@
 {% macro rich(line) %}{% for part in line.split("`") %}{% if loop.index0 % 2 %}<code>{{ part }}</code>{% else %}{{ part }}{% endif %}{% endfor %}{% endmacro %}
 
 {% macro guide(g) %}
+{# Short at first sight: one line of meaning, what this capture shows, three checks. The rest opens on demand. #}
+{% set first, rest = g.meaning | lead %}
 <section class="panel guide">
   <h2>{{ g.headings.title }}</h2>
-  <h3>{{ g.headings.meaning }}</h3>
-  <p>{{ g.meaning }}</p>
-  {% if g.evidence %}<h3>{{ g.headings.evidence }}</h3><ul>{% for line in g.evidence %}<li>{{ rich(line) }}</li>{% endfor %}</ul>{% endif %}
-  <h3>{{ g.headings.checks }}</h3>
-  <ul>{% for line in g.checks %}<li>{{ rich(line) }}</li>{% endfor %}</ul>
-  {% if g.misread %}<h3>{{ g.headings.misread }}</h3><p>{{ rich(g.misread) }}</p>{% endif %}
-  <h3>{{ g.headings.sources }}</h3>
-  <ul class="sources">{% for s in g.sources %}<li><a href="{{ s.url }}" rel="noreferrer noopener">{{ s.title }}</a>{% if s.where %}: {{ s.where }}{% endif %}</li>{% endfor %}</ul>
-  <p class="hint">{{ g.headings.origin }}</p>
+  <div class="guide-cols">
+    <div>
+      <h3>{{ g.headings.meaning }}</h3>
+      <p>{{ first }}</p>
+      {% if rest %}<details class="more"><summary>{{ _("More") }}</summary><p>{{ rest }}</p></details>{% endif %}
+    </div>
+    {% if g.evidence %}<div>
+      <h3>{{ g.headings.evidence }}</h3>
+      <ul>{% for line in g.evidence %}<li>{{ rich(line) }}</li>{% endfor %}</ul>
+    </div>{% endif %}
+    <div>
+      <h3>{{ g.headings.checks }}</h3>
+      <ul>{% for line in g.checks[:3] %}<li>{{ rich(line) }}</li>{% endfor %}</ul>
+      {% if g.checks | length > 3 %}<details class="more"><summary>{{ _("{n} more checks", n=g.checks | length - 3) }}</summary><ul>{% for line in g.checks[3:] %}<li>{{ rich(line) }}</li>{% endfor %}</ul></details>{% endif %}
+    </div>
+  </div>
+  <details class="more notes">
+    <summary>{{ g.headings.misread ~ " · " if g.misread }}{{ g.headings.sources }}</summary>
+    {% if g.misread %}<p>{{ rich(g.misread) }}</p>{% endif %}
+    <ul class="sources">{% for s in g.sources %}<li><a href="{{ s.url }}" rel="noreferrer noopener">{{ s.title }}</a>{% if s.where %}: {{ s.where }}{% endif %}</li>{% endfor %}</ul>
+    <p class="hint">{{ g.headings.origin }}</p>
+  </details>
 </section>
 {% endmacro %}
 
@@ -134,22 +171,22 @@
 {% endmacro %}
 
 {% macro capnav(a, current, issue_count=0) %}
-<div class="views-row">
-  <nav class="views" aria-label="{{ _("Capture views") }}">
-    <a href="/a/{{ a.id }}" {% if current == "overview" %}aria-current="page"{% endif %}>{{ _("Overview") }}</a>
-    <a href="/a/{{ a.id }}?tab=issues" {% if current == "issues" %}aria-current="page"{% endif %}>{{ _("Issues") }}{% if issue_count %}<span class="count">{{ issue_count }}</span>{% endif %}</a>
-    <a href="/a/{{ a.id }}?tab=urls" {% if current == "urls" %}aria-current="page"{% endif %}>{{ _("URLs") }}</a>
-    <a href="/a/{{ a.id }}?tab=connections" {% if current == "connections" %}aria-current="page"{% endif %}>{{ _("Connections") }}</a>
-    <a href="/a/{{ a.id }}?tab=hosts" {% if current == "hosts" %}aria-current="page"{% endif %}>{{ _("Hosts") }}</a>
-    <a href="/a/{{ a.id }}?tab=backends" {% if current == "backends" %}aria-current="page"{% endif %}>{{ _("Servers") }}</a>
-    <a href="/a/{{ a.id }}?tab=tls" {% if current == "tls" %}aria-current="page"{% endif %}>TLS</a>
-    <a href="/a/{{ a.id }}?tab=stats" {% if current == "stats" %}aria-current="page"{% endif %}>{{ _("Statistics") }}</a>
-    <a href="/a/{{ a.id }}/inspect" {% if current == "inspect" %}aria-current="page"{% endif %}>{{ _("Inspect traffic") }}</a>
-  </nav>
-  <form class="search" method="get" action="/a/{{ a.id }}/inspect" role="search">
-    <input type="search" name="url" aria-label="{{ _("Search URLs in this capture") }}" placeholder="{{ _("Search URLs in this capture") }}">
-  </form>
-</div>
+<nav class="side-group views" aria-label="{{ _("Capture views") }}">
+  <p class="side-label" aria-hidden="true">{{ _("Capture views") }}</p>
+  {% for key, href, label in [
+    ("overview", "", _("Overview")), ("issues", "?tab=issues", _("Issues")), ("urls", "?tab=urls", _("URLs")),
+    ("connections", "?tab=connections", _("Connections")), ("hosts", "?tab=hosts", _("Hosts")), ("backends", "?tab=backends", _("Servers")),
+    ("tls", "?tab=tls", "TLS"), ("stats", "?tab=stats", _("Statistics")), ("inspect", "/inspect", _("Inspect traffic"))] %}
+  <a href="/a/{{ a.id }}{{ href }}" {% if current == key %}aria-current="page"{% endif %}>{{ icon(key) }}<span>{{ label }}</span>{% if key == "issues" and issue_count %}<span class="count">{{ issue_count }}</span>{% endif %}</a>
+  {% endfor %}
+</nav>
+{% endmacro %}
+
+{% macro capsearch(a) %}
+<form class="search" method="get" action="/a/{{ a.id }}/inspect" role="search">
+  {{ icon("inspect") }}
+  <input type="search" name="url" aria-label="{{ _("Search URLs in this capture") }}" placeholder="{{ _("Search URLs in this capture") }}">
+</form>
 {% endmacro %}
 
 {% macro flow(f) %}

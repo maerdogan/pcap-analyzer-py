@@ -241,7 +241,8 @@ class Builder:
         if p.get("tcp.stream") and not p.get("icmp.type") and not p.get("icmpv6.type"):
             flags = to_int(p.get("tcp.flags")) or 0
             if flags & SYN and flags & (FIN | RST) or not flags & (SYN | FIN | RST | ACK) or flags & FIN and not flags & ACK:
-                self.issue(p, t, "tcp_flags_invalid", f"0x{flags:03x}")
+                names = [n for bit, n in ((SYN, "SYN"), (ACK, "ACK"), (0x08, "PSH"), (FIN, "FIN"), (RST, "RST"), (0x20, "URG")) if flags & bit]
+                self.issue(p, t, "tcp_flags_invalid", ", ".join(names) or "none")
             elif flags & ECE and not flags & SYN or flags & CWR and not flags & SYN:
                 self.issue(p, t, "ecn_congestion", "CWR" if flags & CWR else "ECE")
             if p.get("tcp.analysis.reused_ports"):

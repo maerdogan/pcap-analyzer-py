@@ -73,6 +73,15 @@ def clock(v):
     return datetime.datetime.fromtimestamp(v).strftime("%H:%M")
 
 
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-ZÇĞİÖŞÜÁÉÍÓÚÑÄß0-9`(])")
+
+
+def lead(text):
+    """The first sentence of a text, and the rest of it, so a long explanation can open with one line."""
+    parts = SENTENCE_END.split(text or "", maxsplit=1)
+    return parts[0], parts[1] if len(parts) > 1 else ""
+
+
 def _bad(message, code=400):
     raise HTTPException(code, message)
 
@@ -165,7 +174,7 @@ def create_app(settings=None, https=False):
                   dependencies=[Depends(from_this_session)])
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     templates = Jinja2Templates(directory=HERE / "templates")
-    templates.env.filters.update(seconds=seconds, size=size, when=when, day=day, clock=clock)
+    templates.env.filters.update(seconds=seconds, size=size, when=when, day=day, clock=clock, lead=lead)
 
     def log(request, event, detail=""):
         records.audit(settings, event, request.client.host if request.client else "unknown", detail)
@@ -736,6 +745,19 @@ def create_app(settings=None, https=False):
         log(request, "follow", f"{aid} connection {stream} {mode}")
         f = dict(mode="http", chunks=[]) if mode == "http" else packet_view(lambda: stats.follow(a, settings, stream, mode))
         return page(request, "follow.html", f=f, exchanges=exchanges, requests=requests, stream=stream, **capture_ctx(a))
+
+    @app.get("/a/{aid}/txn/{tid}/packets", response_class=HTMLResponse)
+    def transaction_packets(request: Request, aid: str, tid: int):
+        a = opened(aid)
+        with a.connect() as db:
+            t = reports.one(db, "SELECT stream, req_frame, req_start, req_end, resp_end, new_conn FROM http_transactions WHERE id = ?", [tid])
+        if t is None:
+            _bad(knowledge.t("This request does not exist."), 404)
+        try:
+            found = packet_view(lambda: stats.request_packets(a, settings, t))
+        except HTTPException as e:
+            return page(request, "_conn_packets.html", a=a, error=e.detail)
+        return page(request, "_conn_packets.html", a=a, p=found, stream=t["stream"])
 
     @app.get("/a/{aid}/conn/{stream}/packets", response_class=HTMLResponse)
     def connection_packets(request: Request, aid: str, stream: int):

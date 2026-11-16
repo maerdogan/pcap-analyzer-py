@@ -34,4 +34,12 @@
  "ACKed unseen segment",
  "zero window",
  "window full",
- "keep-alive"]
+ "keep-alive",
+ "opens a connection",
+ "acknowledges data received",
+ "hands the data to the application at once",
+ "ends sending, a normal close",
+ "breaks the connection off at once",
+ "marks urgent data",
+ "reports congestion on the path",
+ "the sender slowed down after congestion"]

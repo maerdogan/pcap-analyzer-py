@@ -4,7 +4,7 @@
 {% block capture_nav %}{{ ui.capnav(a, "connections", issue_count) }}{% endblock %}
 {% block main %}
 {{ ui.crumbs([(_("Captures"), "/"), (m.filename, "/a/" ~ a.id), (_("Connection {n}", n=t.conn.client_ip ~ ":" ~ t.conn.client_port), "/a/" ~ a.id ~ "/conn/" ~ t.stream), (t.method ~ " " ~ (t.uri | truncate(48, True, "…")), None)]) }}
-<header class="hero">
+<header class="hero split">
   <div class="hero-head"><div>
     <h1 class="uri">{{ t.method }} {{ t.uri }}</h1>
     <p><b>{{ t.cause_label }}.</b> {{ t.explanation }}</p>
@@ -45,6 +45,14 @@
     <div><dt>{{ _("Packets") }}</dt><dd>{{ t.req_frame }}–{{ t.resp_frame or t.req_frame }}</dd></div>
   </dl>
 </section>
+{% if m.capture_kept %}
+<section class="panel flush">
+  <h2>{{ _("Packets of this request") }}</h2>
+  <p class="muted pad">{{ _("Every packet of this request in order: the connection setup when the request opened the connection, the request, the response and its acknowledgment.") }}
+    <a href="/a/{{ a.id }}/conn/{{ t.stream }}">{{ _("All packets of the connection") }}</a></p>
+  <div id="txn-packets" hx-get="/a/{{ a.id }}/txn/{{ t.id }}/packets" hx-trigger="load" hx-swap="innerHTML"><p class="empty">{{ _("Reading the packets again. A large capture can take a few minutes the first time.") }}</p></div>
+</section>
+{% endif %}
 <section class="panel">
   <h2>{{ _("Content") }}</h2>
   <p class="hint">{{ _("Cookies, tokens and passwords are masked. Bodies show the first 2 KB when they are text.") }}</p>

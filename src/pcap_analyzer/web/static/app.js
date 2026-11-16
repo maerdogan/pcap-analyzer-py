@@ -56,7 +56,7 @@
     });
   }
 
-  const INK = "#202126", MUTED = "#5c616c", LINE = "#e4e8ee", BRAND = "#3347ee", GOOD = "#0b8540", BAD = "#c81e2b";
+  const INK = "#121d33", MUTED = "#475570", LINE = "#d0d9e5", BRAND = "#1857c2", GOOD = "#08703a", BAD = "#c41d2a";
   function download(url, name) {
     Object.assign(document.createElement("a"), { href: url, download: name }).click();
   }
@@ -143,7 +143,7 @@
         itemStyle: { color: "#e2702a" }, tooltip: { valueFormatter: bits } },
     ],
   });
-  const SIDE_COLORS = ["#3347ee", "#3e9b5f"];
+  const SIDE_COLORS = ["#1857c2", "#3e9b5f"];
   CHARTS.tcpgraph = (data, el) => {
     const kind = el.dataset.kind;
     const axis = { stevens: t("Sequence number"), throughput: t("Bits per second"), rtt: t("Round trip"), window: t("Window") }[kind];
@@ -257,9 +257,22 @@
       form.requestSubmit();
     }));
   }
+  // On narrow screens the side menu slides in over the page.
+  function setupSideMenu() {
+    const toggle = document.querySelector("[data-nav-toggle]"), scrim = document.querySelector("[data-nav-close]");
+    if (!toggle) return;
+    const show = (open) => {
+      document.body.classList.toggle("nav-open", open);
+      toggle.setAttribute("aria-expanded", String(open));
+      scrim.hidden = !open;
+    };
+    toggle.addEventListener("click", () => show(!document.body.classList.contains("nav-open")));
+    scrim.addEventListener("click", () => show(false));
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && document.body.classList.contains("nav-open")) { show(false); toggle.focus(); } });
+  }
   document.addEventListener("DOMContentLoaded", () => {
     setup(document);
     document.body.addEventListener("htmx:afterSettle", (e) => setup(e.target));
-    document.querySelector(".views [aria-current]")?.scrollIntoView({ inline: "center", block: "nearest" });
+    setupSideMenu();
   });
 })();
