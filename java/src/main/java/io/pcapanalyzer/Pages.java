@@ -114,6 +114,11 @@ public final class Pages {
         sb.append("</div>\n<p class=\"side-foot\">").append(esc(c.t("Version {n}", "n", VERSION))).append("</p>\n</aside>\n<div class=\"scrim\" data-nav-close hidden></div>\n<div class=\"shell\">\n");
         sb.append("<header class=\"top\"><button type=\"button\" class=\"icon-button nav-toggle\" aria-controls=\"side\" aria-expanded=\"false\" data-nav-toggle>")
           .append(icon("menu")).append("<span class=\"sr\">").append(esc(c.t("Menu"))).append("</span></button>\n<div class=\"top-end\">\n");
+        Users.Current me = Users.current();
+        if (me != null && !me.name().equals("api-token"))
+            sb.append("<div class=\"who\">").append(icon("users")).append("<span><b>").append(esc(me.name())).append("</b> <small>").append(esc(c.t(roleLabel(me.role()))))
+              .append(me.group() != null && !me.group().isEmpty() ? " · " + esc(me.group()) : "").append("</small></span><form method=\"post\" action=\"").append(p).append("/logout\">")
+              .append(csrf(c)).append("<button class=\"ghost\">").append(esc(c.t("Sign out"))).append("</button></form></div>\n");
         sb.append("<form method=\"post\" action=\"").append(p).append("/language\" class=\"language\"><input type=\"hidden\" name=\"back\" value=\"").append(esc(c.uri()))
           .append("\">").append(csrf(c)).append("<label><span>").append(esc(c.t("Language"))).append("</span><select name=\"language\" data-submit>");
         for (String code : Knowledge.LANGUAGES)
@@ -1565,12 +1570,35 @@ public final class Pages {
               .append(esc(c.t("Show"))).append("</button></p>");
         sb.append("<form method=\"post\" action=\"").append(c.path()).append("/security\">").append(csrf).append("<div class=\"fields\">")
           .append("<label>").append(esc(c.t(set ? "New master key" : "Master key"))).append(" <input type=\"password\" name=\"master\" required minlength=\"16\" maxlength=\"16\" autocomplete=\"off\" spellcheck=\"false\"></label>")
-          .append("<label>").append(esc(c.t("Again"))).append(" <input type=\"password\" name=\"again\" required minlength=\"16\" maxlength=\"16\" autocomplete=\"off\" spellcheck=\"false\"></label></div>")
+          .append("<label>").append(esc(c.t("Again"))).append(" <input type=\"password\" name=\"again\" required minlength=\"16\" maxlength=\"16\" autocomplete=\"off\" spellcheck=\"false\"></label>")
+          .append(set ? "" : "<label>" + esc(c.t("Your password")) + " <input type=\"password\" name=\"password\" required autocomplete=\"current-password\"></label>").append("</div>")
           .append("<p class=\"hint\">").append(esc(c.t("Exactly 16 characters, with at least one sign that is not a letter or digit, such as ! # % or *. Keep a copy somewhere safe."))).append("</p>")
           .append("<button class=\"primary\">").append(esc(c.t(set ? "Change the master key" : "Set the master key and encrypt"))).append("</button></form></section>");
         sb.append("<section class=\"panel\"><h2>").append(esc(c.t("How the data is encrypted"))).append("</h2><ul class=\"plain\">");
         for (String line : Vault.ALGORITHM.split("\\. ")) sb.append("<li>").append(esc(line.endsWith(".") ? line : line + ".")).append("</li>");
         sb.append("</ul><p class=\"hint\">").append(esc(c.t("After a restart nothing can be read until the setup admin signs in. Until then other users see a waiting page."))).append("</p></section>");
+        return sb.toString();
+    }
+
+    /** The sign-in page: on its own, with the logo, a name and password, and the language choice. */
+    public static String loginPage(Ctx c, String next, String error) {
+        String p = c.path();
+        StringBuilder sb = new StringBuilder("<!doctype html>\n<html lang=\"").append(c.lang()).append("\">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>")
+            .append(esc(c.t("Sign in"))).append(" · pcap-analyzer</title>\n<link rel=\"icon\" href=\"").append(p).append("/static/brand/favicon.png\" type=\"image/png\">\n<link rel=\"stylesheet\" href=\"")
+            .append(p).append("/static/app.css?v=").append(ASSETS).append("\">\n</head>\n<body class=\"login-page\">\n<main class=\"login\">\n<img class=\"login-logo\" src=\"").append(p)
+            .append("/static/brand/logo.png\" alt=\"pcap-analyzer\" width=\"260\" height=\"60\">\n<h1>").append(esc(c.t("Sign in"))).append("</h1>\n");
+        if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>\n");
+        sb.append("<form method=\"post\" action=\"").append(p).append("/login\">").append(csrf(c)).append("<input type=\"hidden\" name=\"next\" value=\"").append(esc(next)).append("\">")
+          .append("<label>").append(esc(c.t("User name"))).append(" <input name=\"user\" required autocomplete=\"username\" autocapitalize=\"none\" spellcheck=\"false\" autofocus></label>")
+          .append("<label>").append(esc(c.t("Password"))).append(" <input type=\"password\" name=\"password\" required autocomplete=\"current-password\"></label>")
+          .append("<button class=\"primary\">").append(esc(c.t("Sign in"))).append("</button></form>\n");
+        sb.append("<form method=\"post\" action=\"").append(p).append("/language\" class=\"language login-language\"><input type=\"hidden\" name=\"back\" value=\"/login\">").append(csrf(c))
+          .append("<label><span>").append(esc(c.t("Language"))).append("</span><select name=\"language\" data-submit>");
+        for (String code : Knowledge.LANGUAGES)
+            sb.append("<option value=\"").append(code).append("\"").append(code.equals(c.lang()) ? " selected" : "").append(">").append(Knowledge.LANGUAGE_NAMES.get(code)).append("</option>");
+        sb.append("</select></label><noscript><button>").append(esc(c.t("Save"))).append("</button></noscript></form>\n");
+        sb.append("<p class=\"hint\">").append(esc(c.t("Sign in with the account an admin gave you. The first sign-in of a new install is admin / admin."))).append("</p>\n");
+        sb.append("</main>\n<script src=\"").append(p).append("/static/app.js?v=").append(ASSETS).append("\" defer></script>\n</body>\n</html>\n");
         return sb.toString();
     }
 

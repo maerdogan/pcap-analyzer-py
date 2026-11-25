@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sessions are not kept across a restart (the encrypted data is locked then anyway), and the cookie is only sent from this site. -->
+<Context>
+  <Manager pathname=""/>
+  <CookieProcessor sameSiteCookies="strict"/>
+</Context>

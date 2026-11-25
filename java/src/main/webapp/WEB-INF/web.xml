@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <web-app xmlns="https://jakarta.ee/xml/ns/jakartaee" version="6.0">
   <display-name>pcap-analyzer</display-name>
-  <session-config><session-timeout>30</session-timeout></session-config>
+  <!-- a session ends after an hour without use; its cookie is never readable by scripts, and is Secure over HTTPS -->
+  <session-config>
+    <session-timeout>60</session-timeout>
+    <cookie-config><name>PCAPSESSION</name><http-only>true</http-only></cookie-config>
+    <tracking-mode>COOKIE</tracking-mode>
+  </session-config>
 </web-app>

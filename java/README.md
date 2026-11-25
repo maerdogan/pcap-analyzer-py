@@ -5,7 +5,7 @@ Find out why HTTP requests are slow, from a packet capture. This folder is the *
 Upload a PCAP and see where the time went: connection setup, network delay, service time, data transfer, or packet loss. It runs on your own server, needs no internet access, and reads captures with tshark.
 
 > [!WARNING]
-> Do not expose this application to the internet. It is built for private networks and has had no independent security review. Users sign in with HTTP Basic, locally or through LDAP, and see only their own group's captures. Everything in the data folder is encrypted; after a restart nothing can be read until the setup admin signs in.
+> Do not expose this application to the internet. It is built for private networks and has had no independent security review. Users sign in on a sign-in page, locally or through LDAP, and sign out from the top bar; scripts use HTTP Basic or a token on the API. Users see only their own group's captures. Everything in the data folder is encrypted; after a restart nothing can be read until the setup admin signs in.
 
 It shows the same pages as the Python version, in Turkish, English, German and Spanish.
 

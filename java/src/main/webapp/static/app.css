@@ -454,3 +454,20 @@ code.secret { font-size: 1rem; letter-spacing: .05em; }
 @media (hover: none) { .wf-tip { display: none !important; } }
 .pager { display: flex; gap: 1rem; align-items: center; justify-content: flex-end; padding-block: .7rem; }
 .pager .off { color: var(--muted); opacity: .55; }
+
+/* Sign-in page, and the signed-in user with Sign out in the top bar */
+.login-page { display: grid; place-items: center; min-height: 100vh; margin: 0; padding: 16px; background: var(--page); }
+.login { width: min(400px, 100%); background: var(--surface); border-radius: 14px; padding: 2rem 2rem 1.6rem; box-shadow: var(--shadow); }
+.login-logo { display: block; width: 260px; max-width: 100%; height: auto; margin-bottom: 1.2rem; }
+.login h1 { margin: 0 0 1rem; font-size: 1.3rem; }
+.login form label { display: block; margin-bottom: .8rem; }
+.login form input { width: 100%; }
+.login button.primary { width: 100%; margin-top: .3rem; }
+.login-language { margin-top: 1.1rem; }
+.login .hint { margin-top: 1rem; }
+.who { display: flex; align-items: center; gap: .55rem; margin-right: .8rem; color: var(--muted); font-size: .9rem; }
+.who b { color: var(--ink); font-weight: 600; }
+.who form { margin: 0; }
+.who button.ghost { height: 34px; padding: 0 .8rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); }
+.who button.ghost:hover { background: var(--inset); }
+@media (max-width: 700px) { .who small { display: none; } }

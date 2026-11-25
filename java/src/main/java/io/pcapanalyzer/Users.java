@@ -91,6 +91,21 @@ public final class Users {
         return null;
     }
 
+    /** Sign-in generation per user: a password an admin sets, or deleting the user, ends the user's open sessions. */
+    private static final Map<String, Integer> GENERATION = new java.util.concurrent.ConcurrentHashMap<>();
+    static int generation(String name) { return GENERATION.getOrDefault(name, 0); }
+    static void endSessions(String name) { GENERATION.merge(name, 1, Integer::sum); }
+
+    /** The user of a session, read again on every request so a new role or group counts at once; null when the user is gone. */
+    public static Current lookup(String name) {
+        for (Map<String, Object> u : load()) {
+            if (!name.equals(u.get("name"))) continue;
+            Role role = Role.of(String.valueOf(u.get("role")));
+            return role == null ? null : new Current(name, role, false, String.valueOf(u.getOrDefault("group", "")), Boolean.TRUE.equals(u.get("must_change")));
+        }
+        return null;
+    }
+
     /** Checks a new user or password change. Returns the problem as an English UI text, or null. */
     static String problem(String name, String group, String password, boolean isNew) {
         if (group != null && !groups().contains(group)) return "Choose one of the groups. An admin adds groups above.";
@@ -189,7 +204,7 @@ public final class Users {
                 if (group != null) u.put("group", group);
                 if (role != null) u.put("role", role.key());
                 // a password an admin sets is temporary: the user must choose a new one at the next sign-in
-                if (password != null) { hashed(u, password); u.put("must_change", true); }
+                if (password != null) { hashed(u, password); u.put("must_change", true); endSessions(name); }
                 save(users);
                 return true;
             }
@@ -214,6 +229,7 @@ public final class Users {
         synchronized (LOCK) {
             List<Map<String, Object>> users = load();
             boolean removed = users.removeIf(u -> name.equals(u.get("name")));
+            if (removed) endSessions(name);
             if (removed) save(users);
             return removed;
         }

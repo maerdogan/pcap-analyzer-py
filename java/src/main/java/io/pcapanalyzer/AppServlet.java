@@ -57,6 +57,10 @@ public class AppServlet extends HttpServlet {
         return v == null ? "" : v;
     }
 
+    /** For the sign-in page, which the filter serves. */
+    static Pages.Ctx context(HttpServletRequest req) { return ctx(req); }
+    static boolean formTokenOk(HttpServletRequest req) { return csrfOk(req); }
+
     private static boolean csrfOk(HttpServletRequest req) {
         String t = req.getParameter("csrf_token");
         return t != null && MessageDigest.isEqual(t.getBytes(StandardCharsets.UTF_8), token().getBytes(StandardCharsets.UTF_8));
@@ -350,7 +354,10 @@ public class AppServlet extends HttpServlet {
         if (problem != null) { security(res, c, null, c.t(problem)); return; }
         try {
             if (!Vault.isSetUp()) {
-                Vault.setUp((String) req.getAttribute("pcap.admin.password"), key);
+                // the master key is wrapped with the admin's password, so the admin gives it once more here
+                String adminPassword = param(req, "password");
+                if (!Passwords.matches(adminPassword)) { security(res, c, null, c.t("The current password is not correct.")); return; }
+                Vault.setUp(adminPassword, key);
                 PARSED.clear();
                 Records.audit("vault_set_up", req.getRemoteAddr(), "");
                 security(res, c, c.t("The master key is set. Every file in the data folder is now encrypted."), null);
