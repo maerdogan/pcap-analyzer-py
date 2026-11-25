@@ -655,5 +655,22 @@
   "HTTP server errors (5xx)": "HTTP sunucu hataları (5xx)",
   "HTTP/2 resets and GOAWAY": "HTTP/2 reset'leri ve GOAWAY",
   "ICMP": "ICMP",
-  "Choose a display filter from the list.": "Listeden bir görüntüleme filtresi seçin."
+  "Choose a display filter from the list.": "Listeden bir görüntüleme filtresi seçin.",
+  "All traffic": "Tüm trafik",
+  "Average request": "Ortalama istek",
+  "Capture point ↔ server, round trip": "Capture noktası ↔ sunucu, gidiş-dönüş",
+  "Client ↔ capture point, round trip": "İstemci ↔ capture noktası, gidiş-dönüş",
+  "Duration from, ms": "Süre en az, ms",
+  "Filter": "Filtrele",
+  "Next": "Sonraki",
+  "No request matches this filter.": "Bu filtreye uyan istek yok.",
+  "Page {n} of {m}": "Sayfa {n} / {m}",
+  "Per {time}": "{time} aralıklarla",
+  "Previous": "Önceki",
+  "Request contains": "İstek şunu içersin",
+  "Round trips are per connection and are not part of the total. The phases add up to the average.": "Gidiş-dönüş süreleri bağlantı başınadır ve toplama dahil değildir. Aşamaların toplamı ortalamayı verir.",
+  "Select a row to see that URL over time above. Select a column title to sort by it.": "Bir satır seçince o URL'in zaman içindeki görünümü yukarıda açılır. Sıralamak için sütun başlığını seçin.",
+  "to, ms": "en çok, ms",
+  "{n} connections": "{n} bağlantı",
+  "{n} requests match.": "{n} istek eşleşiyor."
 }

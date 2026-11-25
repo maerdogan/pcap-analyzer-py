@@ -434,3 +434,23 @@ th.sortable[aria-sort="descending"]::after { content: " ▼"; color: var(--brand
 .side-sub > summary:hover { background: rgba(255, 255, 255, .06); color: #fff; }
 .side-sub > summary .icon { opacity: .8; }
 .side-group .side-sub > a { padding-left: 2.6rem; min-height: 34px; }
+
+/* One URL over time on the inspect page: a time series beside where the average time went */
+.url-view-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 1.25rem; align-items: start; }
+.url-view .chart { height: 340px; min-height: 0; }
+.url-side .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: .6rem; }
+.url-side .breakdown { width: 100%; font-size: .9rem; }
+.url-side .breakdown tr.sep td { padding-top: .6rem; color: var(--muted); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; border-top: 1px solid var(--line); }
+tr[data-url-pick].picked td { background: var(--inset); box-shadow: inset 3px 0 0 var(--brand); }
+@media (max-width: 900px) { .url-view-body { grid-template-columns: minmax(0, 1fr); } }
+
+/* Where the time went, shown beside a slow request while the pointer is over it */
+.waterfall li { position: relative; }
+.wf-tip { display: none; position: absolute; z-index: 20; right: 1.2rem; top: calc(100% - .4rem); width: min(26rem, calc(100% - 2.4rem)); padding: .7rem .9rem; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius-sm); box-shadow: 0 8px 28px rgba(18, 29, 51, .22); pointer-events: none; }
+.wf-tip h4 { margin: 0 0 .4rem; font-size: .9rem; }
+.wf-tip .breakdown { width: 100%; }
+.waterfall li:hover > .wf-tip, .waterfall li:focus-within > .wf-tip { display: block; }
+@media (hover: none) { .wf-tip { display: none !important; } }
+.pager { display: flex; gap: 1rem; align-items: center; justify-content: flex-end; padding-block: .7rem; }
+.pager .off { color: var(--muted); opacity: .55; }

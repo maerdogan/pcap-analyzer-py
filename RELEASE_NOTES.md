@@ -10,6 +10,10 @@ All changes made on the same day are one minor version.
 - Pages use softer, less bright backgrounds, and tables have clearer column titles. Text keeps at least 4.5:1 contrast.
 - The explanation on a request and an issue page spreads over the page in columns: the first sentence of what it means, what this capture shows and three checks. The rest, the common misreading and the sources open on demand.
 - Wireshark display filters on the upload form, the IO graph and the flow graph are picked from a list of presets, such as TLS handshakes, DNS errors or TCP retransmissions, and are no longer typed. The server takes only these: an upload with another filter is refused, and the graphs then show all packets. The command line still takes any filter.
+- Inspect traffic lists all traffic the filter selects, most requests first, in pages of 30.
+- The slowest requests on Inspect traffic can be filtered by text in the request, the status class (2xx to 5xx, or no response) and a duration range in milliseconds, keeping the page's other filters. A duration range lists every match, in pages of 30.
+- Inspect traffic shows each URL over time: its phases stacked per time bucket, the 95th percentile as a dashed line and the requests and failed requests as bars below, beside where its average time went, including the round trips on both sides of the capture point and the gateway's upstream time. Selecting a row in the URL table switches to that URL.
+- Holding the pointer over a slow request shows where its time went.
 
 ## 0.7.6 (2026-11-16)
 

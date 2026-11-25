@@ -1020,5 +1020,22 @@
   "HTTP server errors (5xx)": "HTTP-Serverfehler (5xx)",
   "HTTP/2 resets and GOAWAY": "HTTP/2-Resets und GOAWAY",
   "ICMP": "ICMP",
-  "Choose a display filter from the list.": "Wählen Sie einen Anzeigefilter aus der Liste."
+  "Choose a display filter from the list.": "Wählen Sie einen Anzeigefilter aus der Liste.",
+  "All traffic": "Gesamter Verkehr",
+  "Average request": "Durchschnittliche Anfrage",
+  "Capture point ↔ server, round trip": "Capture-Punkt ↔ Server, Umlaufzeit",
+  "Client ↔ capture point, round trip": "Client ↔ Capture-Punkt, Umlaufzeit",
+  "Duration from, ms": "Dauer ab, ms",
+  "Filter": "Filtern",
+  "Next": "Weiter",
+  "No request matches this filter.": "Keine Anfrage passt zu diesem Filter.",
+  "Page {n} of {m}": "Seite {n} von {m}",
+  "Per {time}": "Je {time}",
+  "Previous": "Zurück",
+  "Request contains": "Anfrage enthält",
+  "Round trips are per connection and are not part of the total. The phases add up to the average.": "Umlaufzeiten gelten je Verbindung und zählen nicht zur Summe. Die Phasen ergeben zusammen den Mittelwert.",
+  "Select a row to see that URL over time above. Select a column title to sort by it.": "Wählen Sie eine Zeile, um diese URL oben im Zeitverlauf zu sehen. Ein Spaltentitel sortiert.",
+  "to, ms": "bis, ms",
+  "{n} connections": "{n} Verbindungen",
+  "{n} requests match.": "{n} Anfragen passen."
 }

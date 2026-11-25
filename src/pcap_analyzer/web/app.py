@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import __version__, capture_guide, compare, display_filters, engine, exports, knowledge, records, reports, services, split, stats, tshark
+from .. import __version__, capture_guide, causes, compare, display_filters, engine, exports, knowledge, records, reports, services, split, stats, tshark
 from ..config import Settings
 from . import saved
 from .auth import Auth
@@ -498,17 +498,35 @@ def create_app(settings=None, https=False):
                                q.get("kind") or None, (q.get("url") or "").strip() or None, _opt_int(q.get("min_size"), "Size"), size_of,
                                _opt_float(q.get("start")), _opt_float(q.get("end")), _opt_int(q.get("src_port"), "Source port"))
 
+    def slow_filter(q):
+        """The filter of the slowest requests list. A value that does not fit is left out, as an empty field is."""
+        def ms(name):
+            try:
+                v = float((q.get(name) or "").strip().replace(",", "."))
+            except ValueError:
+                return None
+            return v if 0 <= v < float("inf") else None
+        status = q.get("slow_status") or None
+        return reports.Slow((q.get("slow_q") or "").strip() or None, status if status in reports.SLOW_STATUSES else None, ms("slow_min_ms"), ms("slow_max_ms"))
+
+    def page_number(q, name):
+        v = (q.get(name) or "").strip()
+        return int(v) if v.isdigit() and len(v) < 9 else 1
+
     @app.get("/a/{aid}/inspect", response_class=HTMLResponse)
     def inspect(request: Request, aid: str):
         a = opened(aid)
         q = dict(request.query_params)
         f = inspect_filter(q)
         with a.connect() as db:
-            r = reports.inspect(db, f)
+            r = reports.inspect(db, f, slow_filter(q), page_number(q, "slow_page"))
+            r["traffic"] = reports.all_traffic(db, f, page_number(q, "conn_page"))
             pairs = reports.rows(db, """SELECT DISTINCT client_ip, server_ip, server_port, kind, count(*) AS connections
                 FROM tcp_connections GROUP BY ALL ORDER BY connections DESC LIMIT 200""")
             flows = reports.top_flows(db, f.start, f.end)
-        ctx = dict(r=r, q=q, flows=flows, query=str(request.url.query), pairs=pairs, kinds=sorted({p["kind"] for p in pairs}), filters=saved.load(settings), **capture_ctx(a))
+        phases = {p: knowledge.phase(p, 0)["label"] for p in causes.PHASES}
+        url_chart = dict(labels=phases, bucket=r["bucket"], urls=[dict(title=f"{u['method']} {u['url']}", series=u["series"]) for u in r["urls"]])
+        ctx = dict(r=r, q=q, flows=flows, query=str(request.url.query), pairs=pairs, phase_labels=phases, url_chart=url_chart, filter_fields=saved.FIELDS, kinds=sorted({p["kind"] for p in pairs}), filters=saved.load(settings), **capture_ctx(a))
         return page(request, "_inspect_results.html" if is_htmx(request) else "inspect.html", **ctx)
 
     @app.post("/filters")
