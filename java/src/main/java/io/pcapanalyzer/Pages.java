@@ -406,6 +406,7 @@ public final class Pages {
         StringBuilder sb = new StringBuilder();
         sb.append(crumbs(c, new String[][] {{c.t("Captures"), c.path() + "/"}, {(String) meta.get("filename"), c.path() + "/a/" + id}, {c.t("Issues"), c.path() + "/a/" + id + "?tab=issues"}, {info[0], null}}));
         sb.append("<header class=\"hero\"><div class=\"hero-head\"><div><h1>").append(esc(info[0])).append("</h1><p class=\"muted\">").append(esc(info[1])).append("</p></div></div></header>");
+        sb.append(guidePanel(c, Knowledge.guide(info[2], null, c.lang())));
         List<Map<String, Object>> conns = (List<Map<String, Object>>) detail.get("connections"), txns = (List<Map<String, Object>>) detail.get("transactions");
         if (!conns.isEmpty()) {
             sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Connections"))).append("</h2><div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Client"))).append("</th><th>")
@@ -555,6 +556,7 @@ public final class Pages {
         sb.append("<header class=\"hero\"><div class=\"hero-head\"><div><h1>").append(status(c, t.get("status"))).append(' ').append(esc(t.get("method") + " " + t.get("uri"))).append("</h1><p class=\"muted\"><b>")
           .append(esc(Knowledge.topicLabel(cause, c.lang()))).append(".</b> ").append(esc(Knowledge.summary(cause, facts, c.lang()))).append("</p></div></div>");
         sb.append(metrics2(c, t)).append("</header>");
+        sb.append(guidePanel(c, Knowledge.guide(cause, facts, c.lang())));
         Map<String, Object> phases = (Map<String, Object>) t.get("phases");
         List<Map<String, Object>> budget = new ArrayList<>();
         phases.forEach((k, v) -> { Map<String, Object> m = new LinkedHashMap<>(); m.put("name", k); m.put("seconds", v); budget.add(m); });
@@ -770,6 +772,41 @@ public final class Pages {
               .append("</dt><dd>").append(esc(p.hides())).append("</dd></div></dl></section>");
         }
         return sb.append("<p class=\"hint\">").append(esc(c.t("To measure NetScaler, capture on both sides at the same time and open the two captures in Compare."))).append(" <a href=\"").append(c.path()).append("/compare\">").append(esc(c.t("Compare"))).append("</a></p>").toString();
+    }
+
+    private static final java.util.regex.Pattern SENTENCE_END = java.util.regex.Pattern.compile("(?<=[.!?])\\s+(?=[A-ZÇĞİÖŞÜÁÉÍÓÚÑÄ0-9`(])");
+
+    /** The explanation of a result: one line of meaning, what this capture shows and three checks. The rest opens on demand. */
+    @SuppressWarnings("unchecked")
+    static String guidePanel(Ctx c, Map<String, Object> g) {
+        if (g == null) return "";
+        Map<String, String> h = (Map<String, String>) g.get("headings");
+        String[] parts = SENTENCE_END.split((String) g.get("meaning"), 2);
+        List<String> evidence = (List<String>) g.get("evidence"), checks = (List<String>) g.get("checks");
+        List<Map<String, String>> sources = (List<Map<String, String>>) g.get("sources");
+        String misread = (String) g.get("misread");
+        StringBuilder sb = new StringBuilder("<section class=\"panel guide\"><h2>").append(esc(h.get("title"))).append("</h2><div class=\"guide-cols\"><div><h3>").append(esc(h.get("meaning"))).append("</h3><p>").append(esc(parts[0])).append("</p>");
+        if (parts.length > 1) sb.append("<details class=\"more\"><summary>").append(esc(c.t("More"))).append("</summary><p>").append(esc(parts[1])).append("</p></details>");
+        sb.append("</div>");
+        if (!evidence.isEmpty()) {
+            sb.append("<div><h3>").append(esc(h.get("evidence"))).append("</h3><ul>");
+            for (String line : evidence) sb.append("<li>").append(rich(line)).append("</li>");
+            sb.append("</ul></div>");
+        }
+        sb.append("<div><h3>").append(esc(h.get("checks"))).append("</h3><ul>");
+        for (int i = 0; i < Math.min(3, checks.size()); i++) sb.append("<li>").append(rich(checks.get(i))).append("</li>");
+        sb.append("</ul>");
+        if (checks.size() > 3) {
+            sb.append("<details class=\"more\"><summary>").append(esc(c.t("{n} more checks", "n", checks.size() - 3))).append("</summary><ul>");
+            for (String line : checks.subList(3, checks.size())) sb.append("<li>").append(rich(line)).append("</li>");
+            sb.append("</ul></details>");
+        }
+        sb.append("</div></div><details class=\"more notes\"><summary>").append(esc((misread != null ? h.get("misread") + " · " : "") + h.get("sources"))).append("</summary>");
+        if (misread != null) sb.append("<p>").append(rich(misread)).append("</p>");
+        sb.append("<ul class=\"sources\">");
+        for (Map<String, String> s : sources)
+            sb.append("<li><a href=\"").append(esc(s.get("url"))).append("\" rel=\"noreferrer noopener\">").append(esc(s.get("title"))).append("</a>: ").append(esc(s.get("where"))).append("</li>");
+        return sb.append("</ul><p class=\"hint\">").append(esc(h.get("origin"))).append("</p></details></section>").toString();
     }
 
     static String rich(String line) {

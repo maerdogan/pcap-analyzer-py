@@ -152,4 +152,51 @@ public final class Knowledge {
         }
         return sb.toString();
     }
+
+    /** The topic an issue belongs to. */
+    public static String issueTopic(String key) {
+        Object e = map("issues").get(key);
+        return e instanceof Map<?, ?> m && m.get("topic") instanceof String s ? s : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> matching(Object entries, Map<String, Object> facts, String lang) {
+        List<String> out = new ArrayList<>();
+        if (entries instanceof List<?> l) for (Object e : l) if (holds((Map<String, Object>) e, facts)) out.add(fill((Map<String, Object>) e, facts, lang));
+        return out;
+    }
+
+    private static String text(Object entry, String lang) {
+        return entry instanceof Map<?, ?> m ? (m.get(lang) instanceof String s ? s : String.valueOf(m.get("en"))) : "";
+    }
+
+    /** The full explanation of a topic, or null when it has none. Lines with conditions appear only when this capture meets them. */
+    @SuppressWarnings("unchecked")
+    public static Map<String, Object> guide(String topic, Map<String, Object> facts, String lang) {
+        if (!(map("topics").get(topic) instanceof Map<?, ?> raw) || !raw.containsKey("meaning")) return null;
+        Map<String, Object> entry = (Map<String, Object>) raw;
+        Map<String, Object> f = new HashMap<>(facts == null ? Map.of() : facts);
+        Object code = f.get("rst_code");
+        Object note = code instanceof Number n ? map("netscaler_resets").get(String.valueOf(n.longValue())) : null;
+        if (note != null) f.put("rst_note", text(note, lang));
+        List<Object> evidence = new ArrayList<>();
+        if (entry.get("evidence") instanceof List<?> l) evidence.addAll(l);
+        if (map("common").get("evidence") instanceof List<?> l) evidence.addAll(l);
+        Map<String, Object> g = new LinkedHashMap<>();
+        g.put("meaning", text(entry.get("meaning"), lang));
+        g.put("misread", entry.containsKey("misread") ? text(entry.get("misread"), lang) : null);
+        g.put("evidence", matching(evidence, f, lang));
+        g.put("checks", matching(entry.get("checks"), f, lang));
+        Map<String, String> headings = new HashMap<>();
+        map("headings").forEach((k, v) -> headings.put(k, text(v, lang)));
+        g.put("headings", headings);
+        List<Map<String, String>> sources = new ArrayList<>();
+        if (entry.get("sources") instanceof List<?> l) for (Object o : l) {
+            List<Object> pair = (List<Object>) o;
+            Object src = map("sources").get(String.valueOf(pair.get(0)));
+            if (src instanceof Map<?, ?> m) sources.add(Map.of("title", String.valueOf(m.get("title")), "url", String.valueOf(m.get("url")), "where", String.valueOf(pair.get(1))));
+        }
+        g.put("sources", sources);
+        return g;
+    }
 }
