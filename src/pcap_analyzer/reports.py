@@ -48,11 +48,25 @@ def one(db, sql, params=()):
     return got[0] if got else None
 
 
+def saved_columns(db, table):
+    """Columns of a saved table. An analysis saved by an older version lacks the newer ones."""
+    return {r[0] for r in db.execute(f"DESCRIBE {table}").fetchall()}
+
+
+def saved_phases(db):
+    """The phases an analysis recorded, in order."""
+    have = saved_columns(db, "http_transactions")
+    return [p for p in causes.PHASES if p in have]
+
+
 def overview(db, meta):
     http = one(db, f"SELECT {TIME_STATS} FROM http_transactions")
     tcp = one(db, """SELECT count(*) AS connections, count(*) FILTER (handshake_seen) AS handshakes,
         count(*) FILTER (close_type = 'RST') AS resets, avg(connect_time) AS avg_connect, avg(duration) AS avg_duration,
         avg(rtt_server) AS avg_rtt_server, sum(retransmissions) AS retransmissions FROM tcp_connections""")
+    have = saved_columns(db, "http_transactions")
+    if {"health_check", "retry_of"} <= have:
+        http.update(one(db, "SELECT count(*) FILTER (health_check) AS health_checks, count(*) FILTER (retry_of IS NOT NULL) AS retries FROM http_transactions"))
     return dict(
         meta=meta, http=http, tcp=tcp,
         kinds=rows(db, "SELECT kind, count(*) AS connections, sum(bytes) AS bytes FROM tcp_connections GROUP BY 1 ORDER BY 2 DESC"),
@@ -336,6 +350,7 @@ ISSUES = [
     ("loss", 2, "t.cause = 'loss'", None),
     ("retrans", 2, None, "c.retransmissions > 0"),
     ("slow_client", 2, "t.zero_window_time > 0", None),
+    ("retried", 2, "t.retry_of IS NOT NULL", None),
     ("delayed_ack", 3, "t.delayed_ack_time > 0", None),
     ("queueing", 3, "t.queue_time > 0", None),
     ("network", 3, "t.cause = 'network'", None),
@@ -351,6 +366,10 @@ PACKET_ISSUES = [
     ("port_reused", 2, "port_reused"),
     ("ecn_congestion", 3, "ecn_congestion"),
     ("sack_blocks", 3, "sack_blocks"),
+    ("h2_flow_stall", 2, "h2_flow_stall"),
+    ("h2_reset", 2, "h2_reset"),
+    ("h2_goaway", 2, "h2_goaway"),
+    ("tls_no_client_cert", 2, "tls_no_client_cert"),
 ]
 ISSUE_LIMIT = 200
 
@@ -443,7 +462,7 @@ DETAIL_LABELS = {
 
 def time_budget(db):
     """Total seconds spent in each phase, across all requests."""
-    t = one(db, f"""SELECT {', '.join(f'sum({p}) AS {p}' for p in causes.PHASES)} FROM http_transactions""")
+    t = one(db, f"""SELECT {', '.join(f'sum({p}) AS {p}' for p in saved_phases(db))} FROM http_transactions""")
     return [knowledge.phase(k, v) for k, v in t.items() if v]
 
 
@@ -524,10 +543,14 @@ def tls_health(db):
     except duckdb.BinderException:
         return None
     where = "WHERE tls_version IS NOT NULL OR tls_no_answer OR tls_alert IS NOT NULL"
+    mtls = "tls_client_cert_requested" in saved_columns(db, "tcp_connections")
     return dict(
         versions=rows(db, f"""SELECT coalesce(tls_version, '-') AS version, coalesce(tls_cipher, '-') AS cipher, coalesce(tls_alpn, '-') AS alpn, count(*) AS connections,
             count(*) FILTER (tls_resumed) AS resumed, avg(tls_time) AS avg_handshake FROM tcp_connections {where} GROUP BY 1, 2, 3 ORDER BY connections DESC"""),
         problems=rows(db, """SELECT stream, client_ip, client_port, server_ip, server_port, sni, tls_alert, tls_no_answer FROM tcp_connections
             WHERE tls_no_answer OR tls_alert IS NOT NULL ORDER BY stream LIMIT 200"""),
-        certificates=rows(db, """SELECT coalesce(sni, server_ip) AS name, tls_cert_expires AS expires, count(*) AS connections FROM tcp_connections
-            WHERE tls_cert_expires IS NOT NULL GROUP BY 1, 2 ORDER BY 2"""))
+        certificates=rows(db, f"""SELECT coalesce(sni, server_ip) AS name, tls_cert_expires AS expires, {'max(tls_chain)' if mtls else 'NULL'} AS chain,
+            count(*) AS connections FROM tcp_connections WHERE tls_cert_expires IS NOT NULL GROUP BY 1, 2 ORDER BY 2"""),
+        **(one(db, """SELECT count(*) FILTER (tls_client_cert_requested) AS client_cert_requested,
+            count(*) FILTER (tls_client_cert_requested AND tls_client_certs > 0) AS client_cert_sent FROM tcp_connections""") if mtls
+           else dict(client_cert_requested=0, client_cert_sent=0)))

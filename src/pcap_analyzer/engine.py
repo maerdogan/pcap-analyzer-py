@@ -9,7 +9,7 @@ import time
 from dataclasses import astuple, dataclass
 from pathlib import Path
 
-from . import __version__, knowledge, records, split, store, tshark
+from . import __version__, knowledge, records, reports, split, store, tshark
 from .config import Settings
 from .parser import Builder, finish_stream, nat_views
 
@@ -20,6 +20,11 @@ GZIP_MAGIC = b"\x1f\x8b"
 COMPRESSED_MAGIC = (b"\x28\xb5\x2f\xfd", b"\x04\x22\x4d\x18")  # zstd, lz4
 ARCHIVES = {b"PK\x03\x04": "ZIP", b"7z\xbc\xaf": "7-Zip", b"Rar!": "RAR", b"BZh": "bzip2", b"\xfd7zXZ": "xz"}
 KEYLOG_LABELS = (b"CLIENT_RANDOM ", b"CLIENT_HANDSHAKE_TRAFFIC_SECRET ", b"SERVER_HANDSHAKE_TRAFFIC_SECRET ", b"CLIENT_TRAFFIC_SECRET_0 ", b"RSA ")
+KEYLOG_MARKS = (b"CLIENT_RANDOM ", b"_TRAFFIC_SECRET", b"RSA ")  # one of these opens a key log, as the NSS format names them
+# A NetScaler trace (nstrace, from "start nstrace") opens with a signature record that names its version. tshark reads versions 1.0 to 3.5.
+NSTRACE_SIGNATURE = re.compile(rb"NetScaler V\d\d Performance Data")
+NSTRACE_HEAD = 512
+PCAP_MAGICS = (b"\xa1\xb2\xc3\xd4", b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\x3c\x4d", b"\x4d\x3c\xb2\xa1", b"\x0a\x0d\x0d\x0a")
 HEAD_BYTES = 4096
 CHUNK = 1 << 20
 STALE_TMP_S = 6 * 3600
@@ -62,11 +67,25 @@ class Analysis:
         return store.connect(self.db_path)
 
 
+def is_nstrace(head):
+    """True for the start of a NetScaler trace, such as one with "NetScaler V35 Performance Data" in its first record."""
+    return bool(NSTRACE_SIGNATURE.search(head[:NSTRACE_HEAD]))
+
+
+def looks_like_capture(path):
+    """True for a pcap, a pcapng or a NetScaler trace, by its first bytes."""
+    with open(path, "rb") as f:
+        head = f.read(NSTRACE_HEAD)
+    return head.startswith(PCAP_MAGICS) or is_nstrace(head)
+
+
 def _refuse_compressed(path):
     """tshark would unpack these, and the unpacked size cannot be known or limited beforehand.
     Other files people pick by mistake get a message that names them, rather than tshark's guess at an unknown format."""
     with open(path, "rb") as f:
         head = f.read(HEAD_BYTES)
+    if is_nstrace(head):  # its signature record is text, but it is a capture
+        return
     if head.startswith(COMPRESSED_MAGIC):
         raise CompressedCapture(knowledge.t("Compressed captures are not accepted, because their real size cannot be checked. Decompress the file and upload it again."))
     kind = next((name for magic, name in ARCHIVES.items() if head.startswith(magic)), "tar" if head[257:262] == b"ustar" else None)
@@ -93,8 +112,26 @@ def check_keylog(path):
     """tshark skips lines it cannot read, so a wrong file would decrypt nothing without a word."""
     with open(path, "rb") as f:
         head = f.read(HEAD_BYTES)
-    if b"\0" in head or not _is_text(head):
+    if b"\0" in head or not _is_text(head) or not any(mark in head for mark in KEYLOG_MARKS):
         raise WrongFile(knowledge.t("This is not a TLS key log. A key log is a text file with lines such as CLIENT_RANDOM."))
+
+
+def join_keylogs(paths, out):
+    """Write every distinct line of several key logs to out, in order, such as those of the client to NetScaler leg
+    and of the NetScaler to gateway leg. Returns how many key lines out holds."""
+    seen, keys = set(), 0
+    with open(out, "wb") as dst:
+        for path in paths:
+            with open(path, "rb") as src:
+                for line in src:
+                    line = line.strip()
+                    digest = hashlib.blake2b(line, digest_size=16).digest()  # a NetScaler key log can hold millions of lines
+                    if not line or digest in seen:
+                        continue
+                    seen.add(digest)
+                    dst.write(line + b"\n")
+                    keys += not line.startswith(b"#")
+    return keys
 
 
 def check_rsa_key(path):
@@ -233,6 +270,7 @@ def _quality(b, facts):
 
 
 def analyze(path, keylog=None, rsa_key=None, flt=None, settings=None, use_cached=True, display_name=None, limit=None):
+    """keylog is one key log, or a list of them that are joined into one."""
     settings = settings or Settings()
     own_limit = limit is None
     limit = limit or tshark.Limit(settings.analysis_timeout_s)
@@ -248,11 +286,16 @@ def _analyze(path, keylog, rsa_key, flt, settings, use_cached, display_name, lim
     path = Path(path)
     if path.stat().st_size > settings.max_size_mb * CHUNK:
         raise CaptureTooLarge(knowledge.t("{name} is larger than the {n} MB limit", name=path.name, n=settings.max_size_mb))
-    if keylog:
-        check_keylog(keylog)
+    keylogs = [keylog] if isinstance(keylog, (str, Path)) else list(keylog or ())
+    for one in keylogs:
+        check_keylog(one)
     if rsa_key:
         check_rsa_key(rsa_key)
     with tempfile.TemporaryDirectory(prefix="pcap-analyzer-", dir="/tmp") as folder:
+        keylog = keylogs[0] if len(keylogs) == 1 else None
+        if len(keylogs) > 1:
+            keylog = Path(folder) / "keylog"
+            join_keylogs(keylogs, keylog)
         capture = join_parts([path], folder, settings)
         display_name = display_name or path.name.removesuffix(".gz")
         return _run(capture, keylog, rsa_key, flt, settings, use_cached, display_name, limit)
@@ -291,6 +334,7 @@ def _run(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit):
         limit.check()
         writer.close(number, b.dns_rows, lambda txns: _attach_dns(txns, b.dns_rows, b.dns_asks), b.packet_issues, b.quic.rows())
         _mark_capture_end(tmp / "analysis.duckdb", b.t_last, slow_s)
+        _link_saved(tmp / "analysis.duckdb")
         limit.check()
         return _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_version, started, warnings, b, parts, slow_s)
     finally:
@@ -332,6 +376,56 @@ def _mark_capture_end(db_path, capture_end, slow_s):
         return
     with store.connect(db_path, write=True) as db:
         db.execute("UPDATE http_transactions SET cause = 'capture_end' WHERE cause = 'no_response' AND ? - req_end < ?", [capture_end, slow_s])
+
+
+def link_netscaler_legs(conns):
+    """In a NetScaler trace each connection names its own PCB and the linked PCB of the other leg: client to VIP, and SNIP to server.
+    Returns the stream of the other leg for each connection that has one. Either side naming the other is enough."""
+    by_pcb, peer = {}, {}
+    for c in conns:
+        if c.get("ns_pcb") is not None:
+            by_pcb.setdefault(c["ns_pcb"], c)
+    for c in conns:
+        other = by_pcb.get(c.get("ns_linked_pcb")) if c.get("ns_linked_pcb") is not None else None
+        if other is None or other is c:
+            continue
+        peer.setdefault(c["stream"], other["stream"])
+        peer.setdefault(other["stream"], c["stream"])
+    return peer
+
+
+def mark_retries(txns):
+    """A request whose request ID was seen before on an attempt that failed and ended before it began: a retry by the gateway or the client.
+    Sets attempt and retry_of on the retries. Two legs of one proxy carry the same ID too, but they overlap in time, so they are not counted."""
+    groups = {}
+    for t in txns:
+        if t.get("request_id"):
+            groups.setdefault(t["request_id"], []).append(t)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda t: t["req_start"])
+        attempt, prev = 1, group[0]
+        for t in group[1:]:
+            failed = not prev.get("status") or prev["status"] >= 500
+            prev_end = prev["resp_end"] if prev.get("resp_end") is not None else prev["req_end"]
+            if not failed or prev_end > t["req_start"]:
+                continue
+            attempt += 1
+            t.update(attempt=attempt, retry_of=prev["id"])
+            prev = t
+
+
+def _link_saved(db_path):
+    """What needs connections and requests of the whole capture, with their final numbers: NetScaler legs and retries."""
+    with store.connect(db_path, write=True) as db:
+        conns = [dict(zip(("stream", "ns_pcb", "ns_linked_pcb"), r)) for r in db.execute(
+            "SELECT stream, ns_pcb, ns_linked_pcb FROM tcp_connections WHERE ns_pcb IS NOT NULL OR ns_linked_pcb IS NOT NULL ORDER BY stream").fetchall()]
+        store.set_values(db, "tcp_connections", "stream", ["ns_peer"], link_netscaler_legs(conns).items(), db_path.parent)
+        txns = reports.rows(db, """SELECT id, request_id, req_start, req_end, resp_end, status FROM http_transactions WHERE request_id IN
+            (SELECT request_id FROM http_transactions WHERE request_id IS NOT NULL GROUP BY 1 HAVING count(*) > 1) ORDER BY req_start, id""")
+        mark_retries(txns)
+        store.set_values(db, "http_transactions", "id", ["attempt", "retry_of"], ((t["id"], t["attempt"], t["retry_of"]) for t in txns if "retry_of" in t), db_path.parent)
 
 
 def _flush(b, writer, views, limit, slow_s, part=None, offset=0):

@@ -15,7 +15,8 @@ SCHEMA = {
         close_type VARCHAR, closed_by VARCHAR, transactions INT, sack BOOLEAN, wscale INT, min_window BIGINT,
         retransmissions INT, zero_windows INT, byte_ratio_db DOUBLE, offload BOOLEAN, rst_code INT, one_way BOOLEAN,
         tls_cipher VARCHAR, tls_alpn VARCHAR, tls_alert VARCHAR, tls_resumed BOOLEAN, tls_no_answer BOOLEAN, tls_cert_expires VARCHAR, tls_unread BOOLEAN,
-        syn_seen BOOLEAN, challenge_ack BOOLEAN""",
+        syn_seen BOOLEAN, challenge_ack BOOLEAN, tls_chain INT, tls_client_cert_requested BOOLEAN, tls_client_certs INT, tls_client_name VARCHAR,
+        proxy_version VARCHAR, proxy_client VARCHAR, proxy_server VARCHAR, ns_pcb BIGINT, ns_linked_pcb BIGINT, ns_rtt_ms INT, ns_peer INT""",
     "http_transactions": """
         id BIGINT PRIMARY KEY, stream INT, h2_stream INT, seq_on_conn INT, new_conn BOOLEAN, method VARCHAR, uri VARCHAR,
         url_template VARCHAR, host VARCHAR, http_version VARCHAR, status INT, phrase VARCHAR, answered BOOLEAN, req_frame BIGINT, resp_frame BIGINT,
@@ -26,7 +27,9 @@ SCHEMA = {
         req_body VARCHAR, resp_body VARCHAR, retrans_count INT, retrans_time DOUBLE, zero_window_time DOUBLE,
         delayed_ack_time DOUBLE, queue_time DOUBLE, network DOUBLE, transfer_clean DOUBLE, request_clean DOUBLE,
         body_bytes BIGINT, truncated BOOLEAN, server_reported DOUBLE, cause VARCHAR, cause_share DOUBLE, flags VARCHAR,
-        max_packet INT, dns_time DOUBLE, grpc_status INT, grpc_message VARCHAR""",
+        max_packet INT, dns_time DOUBLE, grpc_status INT, grpc_message VARCHAR, h2_flow_time DOUBLE, proxy_client VARCHAR,
+        original_client VARCHAR, original_client_from VARCHAR, user_agent VARCHAR, health_check BOOLEAN, upstream_time DOUBLE, gateway_time DOUBLE,
+        attempt INT, retry_of BIGINT""",
     "tcp_events": "stream INT, frame BIGINT, time DOUBLE, sender VARCHAR, event VARCHAR",
     "dns_queries": "name VARCHAR, duration DOUBLE, frame BIGINT, time DOUBLE",
     "stream_parts": "stream INT, part INT, part_stream INT",
@@ -141,6 +144,19 @@ def _load_into(db, table, cols, rows, folder):
         f.flush()
         if f.tell():
             db.execute(f"COPY {table} FROM '{f.name}' (FORMAT json)")
+
+
+def set_values(db, table, key, cols, rows, folder):
+    """Set some columns of saved rows, found by their key. rows hold the key first, then the values in the order of cols."""
+    rows = list(rows)
+    if not rows:
+        return
+    types = dict(c.split()[:2] for c in SCHEMA[table].split(",") if c.split() and c.split()[0].isidentifier())
+    names = [key, *cols]
+    db.execute(f"CREATE TEMP TABLE fix ({', '.join(f'{n} {types[n]}' for n in names)})")
+    _load_into(db, "fix", names, rows, folder)
+    db.execute(f"UPDATE {table} SET {', '.join(f'{c} = fix.{c}' for c in cols)} FROM fix WHERE {table}.{key} = fix.{key}")
+    db.execute("DROP TABLE fix")
 
 
 def connect(path, write=False):

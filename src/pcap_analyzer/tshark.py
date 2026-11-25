@@ -47,6 +47,9 @@ MULTI = [
     "http2.type", "http2.streamid", "http2.flags", "http2.length", "http2.header.count",
     "http2.header.name", "http2.header.value", "http.file_data", "tls.handshake.ciphersuite", "tls.handshake.extensions_alpn_str",
     "tls.alert_message.desc", "x509af.utcTime", "quic.stream.stream_id", "http3.frame_type",
+    "http2.rst_stream.error", "http2.goaway.error", "http2.window_update.window_size_increment", "http2.settings.id", "http2.settings.initial_window_size",
+    "tls.handshake.certificate_length", "x509ce.dNSName", "nstrace.pdevno", "nstrace.l_pdevno", "nstrace.tcpdbg.rtrtt", "nstrace.rtt",
+    "proxy.version", "proxy.v1.magic", "proxy.src.ipv4", "proxy.src.ipv6", "proxy.srcport", "proxy.dst.ipv4", "proxy.dst.ipv6", "proxy.dstport",
 ]
 DECODE_AS = re.compile(r"(tcp|udp|sctp)\.port==(\d{1,5}),([a-z0-9][a-z0-9_.-]{0,31})")  # Wireshark's Decode As: a port read as another protocol
 PRIVATE_PATH = re.compile(r' ?"?/tmp/pcap-(?:analyzer|upload|export)-[^"\s]*"?')
@@ -203,6 +206,8 @@ def _command(binary, capture, keylog, rsa_key, expr, decode=()):
     # A resend that was the first copy on the wire looks like a retransmission, and without this its HTTP head is not dissected.
     cmd = [binary, "-n", "-r", str(capture), "-o", "http.desegment_body:FALSE", "-o", "http.desegment_headers:FALSE",
            "-o", "tcp.desegment_tcp_streams:TRUE", "-o", "tcp.reassemble_out_of_order:TRUE", "-o", "tls.desegment_ssl_records:TRUE",
+           # A PROXY protocol header comes before HTTP or TLS on the same port, so its heuristic has to run before the port's dissector
+           "-o", "tcp.try_heuristic_first:TRUE",
            "-T", "fields", "-E", "separator=/t", "-E", "quote=n", "-E", "occurrence=a", "-E", f"aggregator={AGG}"]
     if keylog:
         cmd += ["-o", f"tls.keylog_file:{keylog}"]
