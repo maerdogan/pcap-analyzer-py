@@ -33,3 +33,16 @@ def truth(samples):
 @pytest.fixture
 def settings(tmp_path):
     return Settings(workdir=tmp_path / "work", max_size_mb=100, ttl_days=7)
+
+
+@pytest.fixture(scope="session")
+def made(tmp_path_factory):
+    """Captures written by one of the tools/gen_*.py generators, by name, as the Java edition's tests use them."""
+    out = tmp_path_factory.mktemp("made")
+
+    def make(name):
+        path = out / f"{name}.pcap"
+        if not path.exists():
+            subprocess.run([sys.executable, ROOT / f"tools/gen_{name}.py", path], check=True, capture_output=True)
+        return path
+    return make

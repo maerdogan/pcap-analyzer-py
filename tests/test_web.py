@@ -344,6 +344,31 @@ def test_keylog_upload(client, samples):
     assert "/secure/report/{id}" in str(client.get(home.replace("/a/", "/api/a/") + "/urls").json())
 
 
+def test_several_key_logs_upload(client, samples):
+    files = [("capture", ("c.pcap", (samples / "https_h2.pcap").read_bytes()))] + [
+        ("keylog", (p.name, p.read_bytes())) for p in (samples / "https_tls13.keylog", samples / "https_h2.keylog")]
+    r = client.post("/upload", files=files)
+    assert r.status_code == 200, r.text
+    jid = re.search(r"/jobs/([0-9a-f]+)", r.text)[1]
+    for _ in range(300):
+        s = client.get(f"/jobs/{jid}")
+        if "HX-Redirect" in s.headers:
+            break
+        time.sleep(0.05)
+    home = s.headers["HX-Redirect"]
+    assert len(client.get(home.replace("/a/", "/api/a/") + "/urls").json()) > 0
+    assert 'name="keylog" multiple' in client.get("/").text
+
+
+def test_proxy_and_gateway_facts_on_pages(client, made):
+    home = upload(client, made("proxy"))
+    conn = client.get(f"{home}/conn/0").text
+    assert "PROXY protocol" in conn and "203.0.113.7:40000" in conn and "198.51.100.10:443" in conn
+    pages = [client.get(f"{home}/txn/{i}").text for i in (1, 2, 3)]
+    assert any("203.0.113.7:40000 (PROXY v2)" in p for p in pages)
+    assert any("Upstream time reported by the gateway" in p and "Time in the gateway itself" in p for p in pages)
+
+
 def test_display_filter_rejected_with_message(client, samples):
     text = upload(client, samples / "http_scenarios.pcap", display_filter="not a ) filter")
     assert 'class="error"' in text
@@ -383,6 +408,9 @@ def test_compare_page(client, samples):
     assert "Summary" in p
     p = client.get("/compare", params=dict(a=a, b=b, mode="points")).text
     assert "2 matched by request ID" in p and "/api/b/3" in p
+    p = client.get("/compare", params=dict(a=a, b=b, mode="points", offset_ms="1,5")).text
+    assert "The clock difference you gave is used" in p and "1.5 ms" in p
+    assert client.get("/compare", params=dict(a=a, b=b, mode="points", offset_ms="soon")).status_code == 400
     assert client.get("/compare", params=dict(a=a, b="0" * 20)).status_code == 404
 
 
