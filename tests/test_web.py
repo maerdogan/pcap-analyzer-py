@@ -1,6 +1,6 @@
 import gzip
 import html
-import json
+import os
 import re
 import time
 
@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pcap_analyzer import engine
 from pcap_analyzer.web.app import create_app
 from pcap_analyzer.web.auth import FAIL_WINDOW_S, MAX_FAILS, MAX_TOTAL_FAILS, Auth, hash_password, verify_password
+from conftest import sign_in
 
 PW = "test-pass-for-unit-tests"
 
@@ -23,14 +24,12 @@ def anon(settings):
 
 @pytest.fixture
 def client(anon):
-    r = anon.post("/login", data={"username": "admin", "password": PW})
-    assert r.status_code == 303
-    anon.headers["X-CSRF-Token"] = form_token(anon)
-    return anon
+    return sign_in(anon, password=PW)
 
 
 def form_token(client):
-    return re.search(r'"X-CSRF-Token": "(\w+)"', client.get("/").text)[1]
+    """The password page is open to everyone signed in, also before the master key is set."""
+    return re.search(r'name="csrf_token" value="(\w+)"', client.get("/password").text)[1]
 
 
 def upload(client, path, extra_files=None, **form):
@@ -72,11 +71,12 @@ def test_first_sign_in_is_admin_admin_and_must_change(settings, configured):
         assert page.status_code == 200 and "first sign-in with the default password" in page.text
         token = re.search(r'name="csrf_token" value="(\w+)"', page.text)[1]
         bad = {"current": "admin", "new": "short", "again": "short", "csrf_token": token}
-        assert "at least 10 characters" in c.post("/password", data=bad).text
+        assert "at least 12 characters" in c.post("/password", data=bad).text
+        assert "at least 12 characters" in c.post("/password", data={**bad, "new": "eleven-char", "again": "eleven-char"}).text
         assert "do not match" in c.post("/password", data={**bad, "new": "a-long-new-pass-1", "again": "other-long-pass-2"}).text
         assert "current password is wrong" in c.post("/password", data={**bad, "current": "nope", "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"}).text
-        assert c.post("/password", data={**bad, "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"}).headers["location"] == "/"
-        assert c.get("/").status_code == 200
+        assert c.post("/password", data={**bad, "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"}).headers["location"] == "/security"
+        assert c.get("/").headers["location"] == "/security"  # next the master key is set
         same = {**bad, "current": "a-long-new-pass-1", "new": "a-long-new-pass-1", "again": "a-long-new-pass-1"}
         assert "other than" in c.post("/password", data=same).text and "first sign-in" not in c.get("/password").text
     stored = settings.workdir / ".admin-password.json"
@@ -84,7 +84,7 @@ def test_first_sign_in_is_admin_admin_and_must_change(settings, configured):
     with TestClient(create_app(settings), follow_redirects=False, base_url="https://testserver") as again:  # a restart keeps the new password
         assert again.post("/login", data={"username": "admin", "password": "admin"}).status_code == 401
         r = again.post("/login", data={"username": "admin", "password": "a-long-new-pass-1"})
-        assert r.status_code == 303 and r.headers["location"] == "/"
+        assert r.status_code == 303 and r.headers["location"] == "/security"
 
 
 def test_password_change_needs_the_form_token(settings):
@@ -96,7 +96,7 @@ def test_password_change_needs_the_form_token(settings):
 
 def test_a_chosen_password_needs_no_change(anon):
     r = anon.post("/login", data={"username": "admin", "password": PW})
-    assert r.headers["location"] == "/" and anon.get("/").status_code == 200
+    assert r.headers["location"] == "/security"  # but the master key is set before anything else
 
 
 def test_invalid_hash_is_refused(settings):
@@ -151,8 +151,8 @@ def test_forwarded_header_is_ignored_without_trusted_proxy(anon):
 def test_cleanup_runs_at_startup(settings, samples):
     settings.admin_password = PW
     a = engine.analyze(samples / "http_scenarios.pcap", settings=settings)
-    meta = a.dir / "meta.json"
-    meta.write_text(json.dumps({**a.meta, "created": 0}))
+    old = time.time() - 8 * 86400  # nobody opened it for longer than the retention time
+    os.utime(a.dir / "meta.json", (old, old))
     with TestClient(create_app(settings)):
         for _ in range(100):
             if not a.dir.exists():
@@ -200,8 +200,8 @@ def test_a_wrong_file_gets_a_message_that_names_it(client, samples, field, conte
 
 @pytest.mark.parametrize("content, expected", [
     (b"\xd4\xc3\xb2\xa1" + bytes(10), ["cut short"]),  # tshark names the file in this message
-    # tshark 4.4 and later open this as a JSON file, 4.2 refuses it
-    (b"\x00\x01" * 500, ["no network packets", "format TShark understands"]),
+    # tshark 4.4 and later open this file as JSON, 4.2 refuses it, and read from the pipe of an encrypted data folder it ends early
+    (b"\x00\x01" * 500, ["no network packets", "format TShark understands", "cut short"]),
 ])
 def test_an_unreadable_capture_gets_a_plain_message(client, tmp_path, content, expected):
     (tmp_path / "c.cap").write_bytes(content)

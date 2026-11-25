@@ -16,6 +16,7 @@ WORK=$(mktemp -d)
 SUDO=
 [[ $(id -u) == 0 ]] || SUDO=sudo
 export PCAP_ANALYZER_PORT=$PORT PCAP_ANALYZER_SMOKE_PASSWORD=$(head -c 18 /dev/urandom | base64 | tr -d '/+=')
+export PCAP_ANALYZER_SMOKE_MASTER_KEY='Smoke#Master-Key'  # the first sign-in sets it, which encrypts the data folder
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -83,7 +84,7 @@ bundle() {
   cat "$folder"/bundle/runtime-linux-x86_64.tar.gz.part-* | tar xzf - -C "$WORK/unpacked"
   cp "$folder/bundle/runtime.sha256" "$WORK/unpacked/runtime/.bundle.sha256"
   chmod -R a+rX "$WORK"
-  docker run --rm --network none --user 1000:1000 --tmpfs /tmp:exec,mode=1777 -e HOME=/tmp -e PCAP_ANALYZER_SMOKE_PASSWORD -e RUN="$run" \
+  docker run --rm --network none --user 1000:1000 --tmpfs /tmp:exec,mode=1777 -e HOME=/tmp -e PCAP_ANALYZER_SMOKE_PASSWORD -e PCAP_ANALYZER_SMOKE_MASTER_KEY -e RUN="$run" \
     -v "$ROOT:/repo:ro" -v "$WORK:/work:ro" "$image" sh -c '
     set -e
     getconf GNU_LIBC_VERSION

@@ -454,3 +454,5 @@ tr[data-url-pick].picked td { background: var(--inset); box-shadow: inset 3px 0 
 @media (hover: none) { .wf-tip { display: none !important; } }
 .pager { display: flex; gap: 1rem; align-items: center; justify-content: flex-end; padding-block: .7rem; }
 .pager .off { color: var(--muted); opacity: .55; }
+.who { color: var(--muted, #667); font-size: .9rem; white-space: nowrap; }
+.good[role="status"] { background: var(--inset); padding: .55rem .85rem; border-radius: 10px; }
