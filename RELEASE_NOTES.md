@@ -6,6 +6,15 @@ All changes made on the same day are one minor version.
 
 ### Added
 
+- HTTP/2 between a gateway and its backend: flow control waits are a phase of their own and an issue, and stream resets (RST_STREAM) and GOAWAY are issues with their error names.
+- Several TLS key logs per analysis, such as the client to NetScaler leg and the NetScaler to gateway leg; the CLI takes `--keylog` more than once.
+- NetScaler traces (nstrace) are accepted as captures; the two legs of the NetScaler are linked by their PCB numbers, with the NetScaler's own round trip.
+- Certificate chain length and the first certificate to expire; mutual TLS: whether the server asked for a client certificate, and the issue "client certificate asked for but not sent".
+- PROXY protocol v1 and v2: the client before the proxy, per connection and request.
+- The original client from a list of headers, `PCAP_ANALYZER_CLIENT_IP_HEADER`, then from PROXY protocol.
+- Envoy's `x-envoy-upstream-service-time`: the upstream time and the gateway's own time per request.
+- Health checks by path and user agent (`PCAP_ANALYZER_HEALTH_PATHS` adds paths), and requests sent again after a failed attempt, as an issue.
+- Compare at two points: the drift of the two clocks is estimated and taken out, and a known clock difference can be given.
 - Users, groups and roles. An admin adds groups and users under Settings → Users: user name, full name, employee ID, group, and the role viewer (opens and exports), analyst (also uploads, deletes own captures, notes, saved filters) or admin (also users, preferences, tokens, the activity log and encryption). Users sign in with a local password or through LDAP, with the group and role from the app. A role that may not do something gets 403.
 - Groups keep their captures apart: each capture records its uploader and group, and a user sees only the captures of their own group on every page, export, comparison, trend, baseline and REST call, including jobs; others answer 404. Admins see every group. Only the uploader or an admin may delete a capture.
 - Encryption at rest, the design of the Java edition: every file in the data folder is encrypted with its own AES-256-GCM key in 1 MiB segments, keys are wrapped with RSA-2048, the data key is sealed with a 16-character master key and the master key with the setup admin's password. Analysis databases use DuckDB's own encryption. After a restart nothing opens until the setup admin signs in; others see a waiting page. The setup admin sets the master key on Settings → Encryption at the first sign-in, which encrypts what is already there, and can show and change it later.
