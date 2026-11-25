@@ -19,7 +19,7 @@ import urllib.request
 import uuid
 
 TABS = ("overview", "issues", "urls", "connections", "hosts", "backends", "tls", "stats")
-PACKET_VIEWS = ("stats/overview", "stats/services", "stats/voip", "stats/io?filter=tcp", "flow?filter=tcp", "objects")  # these read the kept capture again
+PACKET_VIEWS = ("stats/overview", "stats/services", "stats/voip", "stats/io?filter=tls", "flow?filter=dns", "objects")  # these read the kept capture again
 TABLES = ("requests", "urls", "connections", "hosts", "issues")
 FORMATS = ("csv", "json", "xlsx")
 ANALYSIS_LIMIT_S = 180
