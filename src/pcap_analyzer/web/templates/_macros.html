@@ -43,6 +43,10 @@
 </table>
 {% endmacro %}
 
+{% macro display_filter(name, current="") %}
+<select name="{{ name }}">{% for value, label in display_filters.items() %}<option value="{{ value }}" {% if value == current %}selected{% endif %}>{{ _(label) }}</option>{% endfor %}</select>
+{%- endmacro %}
+
 {% macro rich(line) %}{% for part in line.split("`") %}{% if loop.index0 % 2 %}<code>{{ part }}</code>{% else %}{{ part }}{% endif %}{% endfor %}{% endmacro %}
 
 {% macro guide(g) %}

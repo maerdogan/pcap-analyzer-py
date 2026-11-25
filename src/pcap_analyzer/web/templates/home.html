@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% import "_macros.html" as ui with context %}
 {% block title %}{{ _("Captures") }}{% endblock %}
 {% block main %}
 <header class="page-head"><div><h1>{{ _("Captures") }}</h1><p class="muted">{{ _("Upload a capture, or open one you analyzed earlier.") }}</p></div></header>
@@ -53,7 +54,7 @@
           <label>{{ _("TCP port") }} <input name="port" inputmode="numeric"></label>
           <label>{{ _("From") }} <input name="start" type="datetime-local" step="1"></label>
           <label>{{ _("Until") }} <input name="end" type="datetime-local" step="1"></label>
-          <label class="wide">{{ _("Wireshark display filter") }} <input name="display_filter" spellcheck="false" placeholder="http.host contains &quot;example&quot;"></label>
+          <label class="wide">{{ _("Wireshark display filter") }} {{ ui.display_filter("display_filter") }}</label>
           <label class="wide">{{ _("Decode As") }} <input name="decode_as" spellcheck="false" placeholder="tcp.port==9000,http; udp.port==4433,quic">
             <span class="hint">{{ _("Read a port as another protocol, as Wireshark's Decode As does. Separate rules with ;") }}</span></label>
         </div>

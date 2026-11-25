@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import __version__, capture_guide, compare, engine, exports, knowledge, records, reports, services, split, stats, tshark
+from .. import __version__, capture_guide, compare, display_filters, engine, exports, knowledge, records, reports, services, split, stats, tshark
 from ..config import Settings
 from . import saved
 from .auth import Auth
@@ -191,7 +191,7 @@ def create_app(settings=None, https=False):
         records.audit(settings, event, request.client.host if request.client else "unknown", detail)
 
     words = re.findall(r'\bt\("([^"]+)"\)', (HERE / "static/app.js").read_text())
-    templates.env.globals.update(version=__version__, tab_labels=TAB_LABELS, _=knowledge.t, warning_text=knowledge.warnings, lang=knowledge.language,
+    templates.env.globals.update(version=__version__, display_filters=display_filters.PRESETS, tab_labels=TAB_LABELS, _=knowledge.t, warning_text=knowledge.warnings, lang=knowledge.language,
                                  languages=lambda: [(code, LANGUAGE_NAMES[code]) for code in knowledge.LANGUAGES],
                                  js_words=lambda: {w: knowledge.t(w) for w in words})
 
@@ -337,6 +337,8 @@ def create_app(settings=None, https=False):
     async def accept(capture, keylogs, rsa_key, host_a, host_b, port, start, end, display_filter, more=(), decode_as=""):
         if not capture.filename:
             _bad(knowledge.t("Choose a capture file."))
+        if not display_filters.is_preset(display_filter):
+            _bad(knowledge.t("Choose a display filter from the list."))
         flt = tshark.Filter(_ip(host_a, "First host"), _ip(host_b, "Second host"), _opt_int(port, "Port"), _epoch(start), _epoch(end),
                             display_filter.strip() or None, tshark.decode_rules(decode_as))
         try:
@@ -724,17 +726,17 @@ def create_app(settings=None, https=False):
 
     @app.get("/a/{aid}/stats/io", response_class=HTMLResponse)
     def stats_io(request: Request, aid: str, filter: str = ""):  # noqa: A002 - the name people see in the address
-        a = opened(aid)
+        a, flt = opened(aid), display_filters.allowed(filter)
         try:
-            packet_view(lambda: stats.io_graph(a, settings, filter.strip() or None))
+            packet_view(lambda: stats.io_graph(a, settings, flt or None))
         except HTTPException as e:
             return page(request, "_io_graph.html", a=a, error=e.detail)
-        return page(request, "_io_graph.html", a=a, flt=filter.strip())
+        return page(request, "_io_graph.html", a=a, flt=flt)
 
     @app.get("/api/a/{aid}/io")
     def api_io(aid: str, filter: str = ""):  # noqa: A002
-        a = opened(aid)
-        return packet_view(lambda: stats.io_graph(a, settings, filter.strip() or None))
+        a, flt = opened(aid), display_filters.allowed(filter)
+        return packet_view(lambda: stats.io_graph(a, settings, flt or None))
 
     @app.get("/api/a/{aid}/tcpgraph/{stream}")
     def api_tcpgraph(aid: str, stream: int):
@@ -746,9 +748,9 @@ def create_app(settings=None, https=False):
 
     @app.get("/a/{aid}/flow", response_class=HTMLResponse)
     def flow(request: Request, aid: str, filter: str = "", stream: int | None = None):  # noqa: A002
-        a = opened(aid)
-        f = packet_view(lambda: stats.flow_graph(a, settings, filter.strip() or None, stream))
-        return page(request, "flow.html", f=f, flt=filter.strip(), stream=stream, **capture_ctx(a))
+        a, flt = opened(aid), display_filters.allowed(filter)
+        f = packet_view(lambda: stats.flow_graph(a, settings, flt or None, stream))
+        return page(request, "flow.html", f=f, flt=flt, stream=stream, **capture_ctx(a))
 
     @app.get("/a/{aid}/conn/{stream}/follow", response_class=HTMLResponse)
     def follow(request: Request, aid: str, stream: int, mode: str = "ascii"):

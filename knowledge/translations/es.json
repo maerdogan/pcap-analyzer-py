@@ -1006,5 +1006,19 @@
   "Client certificate name": "Nombre del certificado de cliente",
   "NetScaler PCB": "PCB del NetScaler",
   "Linked NetScaler PCB": "PCB enlazado del NetScaler",
-  "Round trip by the NetScaler, ms": "Ida y vuelta según el NetScaler, ms"
+  "Round trip by the NetScaler, ms": "Ida y vuelta según el NetScaler, ms",
+  "HTTP and HTTP/2": "HTTP y HTTP/2",
+  "TLS handshakes": "Handshakes TLS",
+  "DNS": "DNS",
+  "TCP problems": "Problemas TCP",
+  "TCP retransmissions": "Retransmisiones TCP",
+  "TCP window full or zero": "Ventana TCP llena o cero",
+  "TCP resets": "Resets TCP",
+  "New connections (SYN)": "Conexiones nuevas (SYN)",
+  "Round trips over 200 ms": "Idas y vueltas de más de 200 ms",
+  "HTTP errors (4xx and 5xx)": "Errores HTTP (4xx y 5xx)",
+  "HTTP server errors (5xx)": "Errores de servidor HTTP (5xx)",
+  "HTTP/2 resets and GOAWAY": "Resets HTTP/2 y GOAWAY",
+  "ICMP": "ICMP",
+  "Choose a display filter from the list.": "Elija un filtro de visualización de la lista."
 }

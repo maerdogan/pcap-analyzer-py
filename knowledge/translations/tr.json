@@ -639,5 +639,21 @@
   "Client certificate name": "İstemci sertifikası adı",
   "NetScaler PCB": "NetScaler PCB",
   "Linked NetScaler PCB": "Bağlı NetScaler PCB",
-  "Round trip by the NetScaler, ms": "NetScaler'ın ölçtüğü gidiş-dönüş, ms"
+  "Round trip by the NetScaler, ms": "NetScaler'ın ölçtüğü gidiş-dönüş, ms",
+  "HTTP and HTTP/2": "HTTP ve HTTP/2",
+  "TLS handshakes": "TLS el sıkışmaları",
+  "TLS alerts": "TLS uyarıları",
+  "DNS": "DNS",
+  "DNS errors": "DNS hataları",
+  "TCP problems": "TCP sorunları",
+  "TCP retransmissions": "TCP yeniden gönderimleri",
+  "TCP window full or zero": "TCP penceresi dolu ya da sıfır",
+  "TCP resets": "TCP reset'leri",
+  "New connections (SYN)": "Yeni bağlantılar (SYN)",
+  "Round trips over 200 ms": "200 ms'yi aşan gidiş-dönüşler",
+  "HTTP errors (4xx and 5xx)": "HTTP hataları (4xx ve 5xx)",
+  "HTTP server errors (5xx)": "HTTP sunucu hataları (5xx)",
+  "HTTP/2 resets and GOAWAY": "HTTP/2 reset'leri ve GOAWAY",
+  "ICMP": "ICMP",
+  "Choose a display filter from the list.": "Listeden bir görüntüleme filtresi seçin."
 }

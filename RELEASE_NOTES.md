@@ -9,6 +9,7 @@ All changes made on the same day are one minor version.
 - The web interface has a new look with the PCAP Analyzer logo. The sections, the views of the open capture and the recent captures sit in a dark side menu; the URL search, language and sign out sit in a bar at the top. On narrow screens the side menu opens with a menu button.
 - Pages use softer, less bright backgrounds, and tables have clearer column titles. Text keeps at least 4.5:1 contrast.
 - The explanation on a request and an issue page spreads over the page in columns: the first sentence of what it means, what this capture shows and three checks. The rest, the common misreading and the sources open on demand.
+- Wireshark display filters on the upload form, the IO graph and the flow graph are picked from a list of presets, such as TLS handshakes, DNS errors or TCP retransmissions, and are no longer typed. The server takes only these: an upload with another filter is refused, and the graphs then show all packets. The command line still takes any filter.
 
 ## 0.7.6 (2026-11-16)
 

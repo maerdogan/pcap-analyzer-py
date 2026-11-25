@@ -1,4 +1,5 @@
 import gzip
+import html
 import json
 import re
 import time
@@ -369,9 +370,25 @@ def test_proxy_and_gateway_facts_on_pages(client, made):
     assert any("Upstream time reported by the gateway" in p and "Time in the gateway itself" in p for p in pages)
 
 
-def test_display_filter_rejected_with_message(client, samples):
-    text = upload(client, samples / "http_scenarios.pcap", display_filter="not a ) filter")
-    assert 'class="error"' in text
+@pytest.mark.parametrize("typed", ["not a ) filter", "frame.len > 0", "tcp.port == 80"])
+def test_only_a_preset_display_filter_is_accepted(client, samples, typed):
+    r = client.post("/upload", files={"capture": ("a.pcap", (samples / "http_scenarios.pcap").read_bytes())}, data={"display_filter": typed})
+    assert r.status_code == 400 and "Choose a display filter from the list." in r.text
+    htmx = client.post("/upload", files={"capture": ("a.pcap", b"x")}, data={"display_filter": typed}, headers={"HX-Request": "true"})
+    assert 'class="error"' in htmx.text
+
+
+def test_a_preset_display_filter_analyzes(client, samples):
+    home = upload(client, samples / "http_scenarios.pcap", display_filter="http || http2")
+    assert home.startswith("/a/") and "(http || http2)" in client.get("/").text
+
+
+def test_the_display_filter_is_a_list_of_presets(client, samples):
+    from pcap_analyzer.display_filters import PRESETS
+    page = client.get("/").text
+    assert '<select name="display_filter">' in page and 'name="display_filter" spellcheck' not in page
+    assert len(PRESETS) == 18 and all(f'value="{html.escape(v)}"' in page for v in PRESETS)
+    assert ">TCP retransmissions<" in page and ">All packets<" in page
 
 
 def test_bad_ip_rejected(client, samples):
