@@ -292,14 +292,14 @@ def create_app(settings=None, https=False):
 
     @app.get("/password", response_class=HTMLResponse)
     def password_form(request: Request):
-        return page(request, "password.html", error=None, first=auth.must_change)
+        return page(request, "password.html", section="password", error=None, first=auth.must_change)
 
     @app.post("/password", response_class=HTMLResponse)
     def change_password(request: Request, current: str = Form(""), new: str = Form(""), again: str = Form("")):
         first = auth.must_change
         problem = auth.change_password(current, new, again)
         if problem:
-            return templates.TemplateResponse(request, "password.html", dict(error=knowledge.t(problem), first=first), status_code=400)
+            return templates.TemplateResponse(request, "password.html", dict(error=knowledge.t(problem), first=first, section="password"), status_code=400)
         log(request, "password_changed")
         return RedirectResponse("/", 303)
 
@@ -559,7 +559,7 @@ def create_app(settings=None, https=False):
 
     @app.get("/audit", response_class=HTMLResponse)
     def audit_page(request: Request, event: str = ""):
-        return page(request, "audit.html", section="preferences", rows=records.read_audit(settings, event or None), event=event,
+        return page(request, "audit.html", section="audit", rows=records.read_audit(settings, event or None), event=event,
                     events=("login", "login_failed", "logout", "upload", "delete", "export", "notes", "baseline", "thresholds", "token_created", "token_revoked", "api_upload", "api_delete"))
 
     @app.post(API_PREFIX + "captures", status_code=202)

@@ -423,3 +423,13 @@ th.sortable[aria-sort="descending"]::after { content: " ▼"; color: var(--brand
 .legend div { display: flex; gap: .5rem; }
 .legend dt { font-weight: 700; min-width: 3.2rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .legend dd { margin: 0; color: var(--muted); }
+
+/* Settings submenu */
+.side-sub { display: flex; flex-direction: column; gap: 2px; }
+.side-sub > summary { display: flex; align-items: center; gap: .7rem; min-height: 38px; padding: .45rem .75rem; border-radius: var(--radius-sm); color: var(--side-ink); cursor: pointer; list-style: none; }
+.side-sub > summary::-webkit-details-marker { display: none; }
+.side-sub > summary::after { content: ""; margin-left: auto; width: 7px; height: 7px; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform .15s; opacity: .7; }
+.side-sub[open] > summary::after { transform: rotate(45deg); }
+.side-sub > summary:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+.side-sub > summary .icon { opacity: .8; }
+.side-group .side-sub > a { padding-left: 2.6rem; min-height: 34px; }

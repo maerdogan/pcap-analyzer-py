@@ -946,5 +946,6 @@
   "the next byte the sender expects from the other side": "el siguiente byte que el emisor espera del otro lado",
   "Packets of this request": "Paquetes de esta petición",
   "Every packet of this request in order: the connection setup when the request opened the connection, the request, the response and its acknowledgment.": "Todos los paquetes de esta petición en orden: el establecimiento de la conexión cuando la petición la abrió, la petición, la respuesta y su confirmación.",
-  "All packets of the connection": "Todos los paquetes de la conexión"
+  "All packets of the connection": "Todos los paquetes de la conexión",
+  "Settings": "Ajustes"
 }

@@ -611,5 +611,6 @@
   "the next byte the sender expects from the other side": "gönderenin karşı taraftan beklediği sonraki bayt",
   "Packets of this request": "Bu isteğin paketleri",
   "Every packet of this request in order: the connection setup when the request opened the connection, the request, the response and its acknowledgment.": "Bu isteğin tüm paketleri sırasıyla: istek bağlantıyı açtıysa bağlantı kurulumu, istek, cevap ve cevabın onayı.",
-  "All packets of the connection": "Bağlantının tüm paketleri"
+  "All packets of the connection": "Bağlantının tüm paketleri",
+  "Settings": "Ayarlar"
 }

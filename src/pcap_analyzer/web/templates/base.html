@@ -30,7 +30,12 @@
         <a href="/compare" {% if section == "compare" %}aria-current="page"{% endif %}>{{ ui.icon("compare") }}<span>{{ _("Compare") }}</span></a>
         <a href="/trend" {% if section == "trend" %}aria-current="page"{% endif %}>{{ ui.icon("trend") }}<span>{{ _("Trend") }}</span></a>
         <a href="/capture-guide" {% if section == "guide" %}aria-current="page"{% endif %}>{{ ui.icon("guide") }}<span>{{ _("Capture guide") }}</span></a>
-        <a href="/preferences" {% if section == "preferences" %}aria-current="page"{% endif %}>{{ ui.icon("preferences") }}<span>{{ _("Preferences") }}</span></a>
+        <details class="side-sub" {% if section in ("preferences", "password", "audit") %}open{% endif %}>
+          <summary>{{ ui.icon("preferences") }}<span>{{ _("Settings") }}</span></summary>
+          <a href="/preferences" {% if section == "preferences" %}aria-current="page"{% endif %}><span>{{ _("Preferences") }}</span></a>
+          <a href="/password" {% if section == "password" %}aria-current="page"{% endif %}><span>{{ _("Password") }}</span></a>
+          <a href="/audit" {% if section == "audit" %}aria-current="page"{% endif %}><span>{{ _("Activity log") }}</span></a>
+        </details>
       </nav>
       {% block capture_nav %}{% endblock %}
       {% if recent %}

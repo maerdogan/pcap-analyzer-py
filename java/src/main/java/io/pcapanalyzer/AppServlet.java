@@ -160,7 +160,7 @@ public class AppServlet extends HttpServlet {
             }
             case "/export" -> export(req, res, c, info);
             case "/api/v1" -> apiV1(req, res, info, "GET");
-            case "/password" -> html(res, 200, Pages.layout(c, c.t("Password"), "preferences", "", Pages.passwordPage(c, null), recent(), null));
+            case "/password" -> html(res, 200, Pages.layout(c, c.t("Password"), "password", "", Pages.passwordPage(c, null), recent(), null));
             case "/capture-guide" -> {
                 Map<String, String[]> q = req.getParameterMap();
                 int seconds = Optional.ofNullable(Inspect.num(q, "seconds")).filter(n -> n > 0 && n <= 86400).orElse(CaptureGuide.DEFAULT_SECONDS);
@@ -173,7 +173,7 @@ public class AppServlet extends HttpServlet {
             case "/preferences" -> preferences(req, res, c, null, null);
             case "/audit" -> {
                 String event = Inspect.str(req.getParameterMap(), "event");
-                html(res, 200, Pages.layout(c, c.t("Activity log"), "preferences", "", Pages.auditPage(c, Records.readAudit(event, 500), event), recent(), null));
+                html(res, 200, Pages.layout(c, c.t("Activity log"), "audit", "", Pages.auditPage(c, Records.readAudit(event, 500), event), recent(), null));
             }
             case "/trend" -> trend(req, res, c);
             case "/compare" -> compare(req, res, c);
@@ -605,7 +605,7 @@ public class AppServlet extends HttpServlet {
                 if (!Passwords.matches(current)) error = c.t("The current password is not correct.");
                 else if (next.length() < Passwords.MIN_LENGTH) error = c.t("The new password must have at least {n} characters.", "n", Passwords.MIN_LENGTH);
                 else if (!next.equals(again)) error = c.t("The two new passwords are not the same.");
-                if (error != null) { html(res, 422, Pages.layout(c, c.t("Password"), "preferences", "", Pages.passwordPage(c, error), recent(), null)); return; }
+                if (error != null) { html(res, 422, Pages.layout(c, c.t("Password"), "password", "", Pages.passwordPage(c, error), recent(), null)); return; }
                 Passwords.save(next);
                 Records.audit("password", req.getRemoteAddr(), "");
                 res.sendRedirect(req.getContextPath() + "/preferences");

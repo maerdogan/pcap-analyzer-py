@@ -68,9 +68,14 @@ public final class Pages {
         sb.append("<aside class=\"side\" id=\"side\">\n<a class=\"side-brand\" href=\"").append(p).append("/\" aria-label=\"pcap-analyzer\"><img src=\"").append(p)
           .append("/static/brand/logo-on-dark.png\" alt=\"\" width=\"176\" height=\"64\"></a>\n<div class=\"side-scroll\">\n");
         sb.append("<nav class=\"side-group\" aria-label=\"").append(esc(c.t("Main"))).append("\"><p class=\"side-label\" aria-hidden=\"true\">").append(esc(c.t("Main"))).append("</p>\n");
-        String[][] mainNav = {{"captures", "/", "Captures"}, {"compare", "/compare", "Compare"}, {"trend", "/trend", "Trend"}, {"guide", "/capture-guide", "Capture guide"}, {"preferences", "/preferences", "Preferences"}};
+        String[][] mainNav = {{"captures", "/", "Captures"}, {"compare", "/compare", "Compare"}, {"trend", "/trend", "Trend"}, {"guide", "/capture-guide", "Capture guide"}};
         for (String[] n : mainNav)
             sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append(">").append(icon(n[0])).append("<span>").append(esc(c.t(n[2]))).append("</span></a>");
+        boolean inSettings = section.equals("preferences") || section.equals("password") || section.equals("audit");
+        sb.append("<details class=\"side-sub\"").append(inSettings ? " open" : "").append("><summary>").append(icon("preferences")).append("<span>").append(esc(c.t("Settings"))).append("</span></summary>");
+        for (String[] n : new String[][] {{"preferences", "/preferences", "Preferences"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}})
+            sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append("><span>").append(esc(c.t(n[2]))).append("</span></a>");
+        sb.append("</details>");
         sb.append("</nav>\n");
         sb.append(captureNav);
         if (!recent.isEmpty()) {
