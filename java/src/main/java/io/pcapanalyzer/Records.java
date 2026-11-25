@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -13,25 +12,15 @@ import java.util.regex.Pattern;
 public final class Records {
     public static final String TOKEN_PREFIX = "pat_";
     private static final int AUDIT_KEEP = 10_000;
-    private static final SecureRandom RANDOM = new SecureRandom();
     private static final Object LOCK = new Object();
 
     private Records() {}
 
-    @SuppressWarnings("unchecked")
-    private static Object read(String name) {
-        try {
-            return Json.parse(Files.readString(Settings.workdir().resolve(name), StandardCharsets.UTF_8));
-        } catch (IOException | RuntimeException e) {
-            return null;
-        }
-    }
+    private static Object read(String name) { return Vault.readJson(Settings.workdir().resolve(name)); }
 
     private static void write(String name, Object data) throws IOException {
         Files.createDirectories(Settings.workdir());
-        Path tmp = Settings.workdir().resolve(name + "." + Long.toHexString(RANDOM.nextLong()) + ".tmp");
-        Files.writeString(tmp, Json.write(data), StandardCharsets.UTF_8);
-        Files.move(tmp, Settings.workdir().resolve(name), StandardCopyOption.ATOMIC_MOVE);
+        Vault.writeText(Settings.workdir().resolve(name), Json.write(data));
     }
 
     // ---- limits
@@ -80,7 +69,9 @@ public final class Records {
 
     public static String baseline() {
         try {
-            String v = Files.readString(Settings.workdir().resolve("baseline.txt"), StandardCharsets.UTF_8).strip();
+            Path p = Settings.workdir().resolve("baseline.txt");
+            if (!Files.exists(p)) return null;
+            String v = Vault.readText(p).strip();
             return v.matches("[0-9a-f]{16}") ? v : null;
         } catch (IOException e) {
             return null;
@@ -89,27 +80,55 @@ public final class Records {
 
     public static void setBaseline(String id) throws IOException {
         Files.createDirectories(Settings.workdir());
-        Files.writeString(Settings.workdir().resolve("baseline.txt"), id, StandardCharsets.UTF_8);
+        Vault.writeText(Settings.workdir().resolve("baseline.txt"), id);
     }
 
     // ---- activity log
 
+    /** The activity log. Its name says nothing about it, and every line is encrypted. */
+    static Path auditFile() { return Settings.workdir().resolve(".idx0"); }
+
+    /** Encrypts the lines written before the vault existed: those of an old audit.log and the plain ones of the hidden log. Called when the vault is set up. */
+    static void hideAudit() throws IOException {
+        synchronized (LOCK) {
+            List<String> lines = new ArrayList<>();
+            Path old = Settings.workdir().resolve("audit.log");
+            if (Files.exists(old)) lines.addAll(Files.readAllLines(old, StandardCharsets.UTF_8));
+            if (Files.exists(auditFile())) lines.addAll(Files.readAllLines(auditFile(), StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            for (String l : lines) {
+                if (l.isBlank()) continue;
+                sb.append(l.startsWith("{") ? Base64.getEncoder().encodeToString(Vault.sealBytes(l.getBytes(StandardCharsets.UTF_8))) : l).append('\n');
+            }
+            Path tmp = Settings.workdir().resolve(".idx0.tmp");
+            Files.writeString(tmp, sb.toString(), StandardCharsets.UTF_8);
+            Vault.private600(tmp);
+            Files.move(tmp, auditFile(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            Files.deleteIfExists(old);
+        }
+    }
+
     public static void audit(String event, String client, String detail) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("time", System.currentTimeMillis() / 1000.0); m.put("event", event); m.put("client", client);
+        Users.Current who = Users.current();
+        m.put("user", who == null ? "" : who.name());
         m.put("detail", detail == null ? "" : detail.length() > 300 ? detail.substring(0, 300) : detail);
         synchronized (LOCK) {
             try {
                 Files.createDirectories(Settings.workdir());
-                Files.writeString(Settings.workdir().resolve("audit.log"), Json.write(m) + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                // each line is its own encrypted record, so lines can be appended without the vault being open
+                String line = Vault.isSetUp() ? Base64.getEncoder().encodeToString(Vault.sealBytes(Json.write(m).getBytes(StandardCharsets.UTF_8))) : Json.write(m);
+                Files.writeString(auditFile(), line + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                Vault.private600(auditFile());
                 trimAudit();
             } catch (IOException ignored) { }
         }
     }
 
     private static void trimAudit() throws IOException {
-        Path p = Settings.workdir().resolve("audit.log");
-        if (Files.size(p) < 4_000_000) return;
+        Path p = auditFile();
+        if (Files.size(p) < 8_000_000) return;
         List<String> lines = Files.readAllLines(p, StandardCharsets.UTF_8);
         if (lines.size() > AUDIT_KEEP) Files.write(p, lines.subList(lines.size() - AUDIT_KEEP, lines.size()), StandardCharsets.UTF_8);
     }
@@ -119,10 +138,13 @@ public final class Records {
         List<Map<String, Object>> out = new ArrayList<>();
         try {
             List<String> lines;
-            synchronized (LOCK) { lines = Files.readAllLines(Settings.workdir().resolve("audit.log"), StandardCharsets.UTF_8); }
+            synchronized (LOCK) { lines = Files.exists(auditFile()) ? Files.readAllLines(auditFile(), StandardCharsets.UTF_8) : List.of(); }
             for (int i = lines.size() - 1; i >= 0 && out.size() < limit; i--) {
                 try {
-                    Map<String, Object> r = (Map<String, Object>) Json.parse(lines.get(i));
+                    String l = lines.get(i);
+                    if (!l.startsWith("{")) l = new String(Vault.openBytes(Base64.getDecoder().decode(l), auditFile()), StandardCharsets.UTF_8);
+                    else if (Vault.isSetUp()) { Vault.alert(auditFile(), "A plain line was added to the activity log by hand."); continue; }
+                    Map<String, Object> r = (Map<String, Object>) Json.parse(l);
                     if (event == null || event.equals(r.get("event"))) out.add(r);
                 } catch (RuntimeException ignored) { }
             }
@@ -138,36 +160,37 @@ public final class Records {
         } catch (Exception e) { throw new IllegalStateException(e); }
     }
 
+    /** A list file such as tokens.json or filters.json. */
     @SuppressWarnings("unchecked")
-    public static List<Map<String, Object>> tokens() {
-        Object o = read("tokens.json");
+    private static List<Map<String, Object>> list(String file) {
+        Object o = read(file);
         return o instanceof List ? (List<Map<String, Object>>) o : new ArrayList<>();
     }
 
+    private static void removeById(String file, String id) throws IOException {
+        synchronized (LOCK) {
+            List<Map<String, Object>> all = list(file);
+            all.removeIf(t -> id.equals(t.get("id")));
+            write(file, all);
+        }
+    }
+
+    public static List<Map<String, Object>> tokens() { return list("tokens.json"); }
+
     /** Creates a token and returns it. Only its hash is kept. */
     public static String createToken(String name) throws IOException {
-        byte[] raw = new byte[24];
-        RANDOM.nextBytes(raw);
-        String token = TOKEN_PREFIX + HexFormat.of().formatHex(raw);
-        byte[] idb = new byte[4];
-        RANDOM.nextBytes(idb);
+        String token = TOKEN_PREFIX + Settings.randomHex(24);
         synchronized (LOCK) {
             List<Map<String, Object>> all = tokens();
             Map<String, Object> t = new LinkedHashMap<>();
-            t.put("id", HexFormat.of().formatHex(idb)); t.put("name", name); t.put("created", System.currentTimeMillis() / 1000.0); t.put("hash", sha(token));
+            t.put("id", Settings.randomHex(4)); t.put("name", name); t.put("created", System.currentTimeMillis() / 1000.0); t.put("hash", sha(token));
             all.add(t);
             write("tokens.json", all);
         }
         return token;
     }
 
-    public static void revokeToken(String id) throws IOException {
-        synchronized (LOCK) {
-            List<Map<String, Object>> all = tokens();
-            all.removeIf(t -> id.equals(t.get("id")));
-            write("tokens.json", all);
-        }
-    }
+    public static void revokeToken(String id) throws IOException { removeById("tokens.json", id); }
 
     public static boolean validToken(String token) {
         if (token == null || !token.startsWith(TOKEN_PREFIX) || token.length() > 100) return false;
@@ -181,30 +204,19 @@ public final class Records {
 
     public static final List<String> FILTER_FIELDS = List.of("src", "src_port", "dst", "port", "kind", "url", "min_size", "size_of");
 
-    @SuppressWarnings("unchecked")
-    public static List<Map<String, Object>> filters() {
-        Object o = read("filters.json");
-        return o instanceof List ? (List<Map<String, Object>>) o : new ArrayList<>();
-    }
+    public static List<Map<String, Object>> filters() { return list("filters.json"); }
 
     public static void addFilter(String name, Map<String, String> values) throws IOException {
-        byte[] idb = new byte[4];
-        RANDOM.nextBytes(idb);
         synchronized (LOCK) {
             List<Map<String, Object>> all = filters();
             Map<String, Object> f = new LinkedHashMap<>();
-            f.put("id", HexFormat.of().formatHex(idb)); f.put("name", name);
+            f.put("id", Settings.randomHex(4)); f.put("name", name);
             for (String k : FILTER_FIELDS) f.put(k, values.getOrDefault(k, ""));
             all.add(f);
             write("filters.json", all);
         }
     }
 
-    public static void removeFilter(String id) throws IOException {
-        synchronized (LOCK) {
-            List<Map<String, Object>> all = filters();
-            all.removeIf(f -> id.equals(f.get("id")));
-            write("filters.json", all);
-        }
+    public static void removeFilter(String id) throws IOException { removeById("filters.json", id);
     }
 }

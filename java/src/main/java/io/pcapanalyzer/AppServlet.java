@@ -27,11 +27,10 @@ import java.util.regex.Pattern;
  * GET  /api/a/{id}/{timeline|statuses|histogram|urls|connections|result}
  * POST /language
  */
-@WebServlet(urlPatterns = {"", "/upload", "/language", "/a/*", "/api/a/*", "/analysis/*", "/api/analysis/*", "/export/*", "/capture-guide", "/preferences", "/audit", "/trend", "/compare", "/tokens", "/tokens/*", "/filters", "/filters/*", "/api/v1/*", "/password"})
+@WebServlet(urlPatterns = {"", "/upload", "/language", "/a/*", "/api/a/*", "/analysis/*", "/api/analysis/*", "/export/*", "/capture-guide", "/preferences", "/audit", "/trend", "/compare", "/tokens", "/tokens/*", "/filters", "/filters/*", "/api/v1/*", "/password", "/users", "/users/*", "/security", "/security/*"})
 @MultipartConfig(maxFileSize = Settings.MAX_UPLOAD, maxRequestSize = Settings.MAX_UPLOAD + (1 << 20), fileSizeThreshold = 1 << 20)
 public class AppServlet extends HttpServlet {
     private static final Pattern ID = Pattern.compile("[0-9a-f]{16}");
-    private static final Pattern DISPLAY = Pattern.compile("[A-Za-z0-9_.:=!<>&|()\\s\"'/,-]{0,300}");
     private static final Pattern HOST = Pattern.compile("[0-9A-Fa-f:.]{2,45}(/\\d{1,3})?");
     private static final Pattern NAME = Pattern.compile("[0-9a-f]{16}");
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -50,6 +49,12 @@ public class AppServlet extends HttpServlet {
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    /** A form or query value, or "" when it is missing. */
+    private static String param(HttpServletRequest req, String name) {
+        String v = req.getParameter(name);
+        return v == null ? "" : v;
     }
 
     private static boolean csrfOk(HttpServletRequest req) {
@@ -94,30 +99,114 @@ public class AppServlet extends HttpServlet {
     private static Path dir(String id) { return Settings.workdir().resolve(id); }
 
     @SuppressWarnings("unchecked")
+    /** Parsed large files, so a page does not parse a result of tens of megabytes again. Soft references let the GC drop them when the heap is short. */
+    private record Parsed(long modified, long size, java.lang.ref.SoftReference<Object> tree) {}
+    private static final int CACHE_MIN_BYTES = 1 << 20, CACHE_ENTRIES = 4;
+    private static final Map<Path, Parsed> PARSED = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<Path, Parsed> e) { return size() > CACHE_ENTRIES; }
+    });
+
+    @SuppressWarnings("unchecked")
     private static Map<String, Object> read(Path file) {
         try {
-            return (Map<String, Object>) Json.parse(Files.readString(file, StandardCharsets.UTF_8));
+            long size = Files.size(file), modified = Files.getLastModifiedTime(file).toMillis();
+            if (size < CACHE_MIN_BYTES) return (Map<String, Object>) Json.parse(Vault.readText(file));
+            Parsed p = PARSED.get(file);
+            Object tree = p != null && p.modified() == modified && p.size() == size ? p.tree().get() : null;
+            if (tree == null) {
+                tree = Json.parse(Vault.readText(file));
+                PARSED.put(file, new Parsed(modified, size, new java.lang.ref.SoftReference<>(tree)));
+            }
+            // pages change the maps they get, so each gets its own copy
+            return (Map<String, Object>) Json.copy(tree);
         } catch (IOException | RuntimeException e) {
             return null;
         }
+    }
+
+    /** Who uploaded a capture and in which group, written before the analysis starts. */
+    private static void writeOwner(Path dir) throws IOException {
+        Users.Current who = Users.current();
+        Map<String, Object> o = new LinkedHashMap<>();
+        o.put("user", who == null ? "" : who.name());
+        // an admin or token upload has no group of its own; it stays visible to admins only, unless the admin is also in a group
+        o.put("group", who == null || who.group() == null ? "" : who.group());
+        Vault.writeText(dir.resolve("owner.json"), Json.write(o));
+    }
+
+    static String ownerOf(String id) {
+        Map<String, Object> o = read(dir(id).resolve("owner.json"));
+        return o == null ? "" : String.valueOf(o.getOrDefault("user", ""));
+    }
+
+    /** Only the one who uploaded a capture, and admins, may delete it. */
+    static boolean mayDelete(String id) {
+        Users.Current who = Users.current();
+        return who != null && (who.role() == Users.Role.ADMIN || (!who.name().isEmpty() && who.name().equals(ownerOf(id))));
+    }
+
+    private static final Map<String, Long> SEEN = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Marks an analysis as looked at, at most once an hour, by the time of an empty .seen file; the cleaner deletes what nobody looked at. */
+    static void seen(String id) {
+        long now = System.currentTimeMillis();
+        Long last = SEEN.get(id);
+        if (last != null && now - last < 3_600_000L) return;
+        SEEN.put(id, now);
+        try {
+            Path f = dir(id).resolve(".seen");
+            if (!Files.exists(f)) Files.createFile(f);
+            Files.setLastModifiedTime(f, java.nio.file.attribute.FileTime.fromMillis(now));
+        } catch (IOException ignored) { }
+    }
+
+    static String groupOf(String id) {
+        Map<String, Object> o = read(dir(id).resolve("owner.json"));
+        return o == null ? "" : String.valueOf(o.getOrDefault("group", ""));
+    }
+
+    /** True when the signed-in user may see this capture. Captures from before groups existed have no group, so only admins see them. */
+    static boolean visible(String id) {
+        Users.Current who = Users.current();
+        return who == null || who.sees(groupOf(id));
+    }
+
+    /** Capture ids a request names, in its path or in its compare parameters. */
+    private static List<String> named(HttpServletRequest req) {
+        List<String> ids = new ArrayList<>();
+        String path = req.getServletPath(), info = req.getPathInfo() == null ? "" : req.getPathInfo().substring(1);
+        if (List.of("/a", "/api/a", "/export", "/analysis", "/api/analysis").contains(path)) ids.add(info.split("/")[0]);
+        // every REST route that names an analysis: analyses/{id}..., captures/{id}, and jobs/{id}, whose id is the analysis id
+        if (path.equals("/api/v1")) {
+            String[] seg = info.split("/");
+            if (seg.length >= 2 && (seg[0].equals("analyses") || seg[0].equals("captures") || seg[0].equals("jobs"))) ids.add(seg[1]);
+        }
+        for (String k : new String[] {"a", "b", "base", "baseline"}) if (req.getParameter(k) != null) ids.add(req.getParameter(k));
+        ids.removeIf(i -> !ID.matcher(i).matches());
+        return ids;
+    }
+
+    private static boolean allowed(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        for (String id : named(req)) if (!visible(id)) { res.sendError(404); return false; }
+        return true;
     }
 
     private static List<Map<String, Object>> list(String search) {
         List<Map<String, Object>> out = new ArrayList<>();
         Path wd = Settings.workdir();
         if (!Files.isDirectory(wd)) return out;
-        long cutoff = System.currentTimeMillis() - TTL_DAYS * 86_400_000L;
         try (var ds = Files.newDirectoryStream(wd)) {
             for (Path d : ds) {
                 if (!NAME.matcher(d.getFileName().toString()).matches()) continue;
                 Map<String, Object> m = read(d.resolve("meta.json"));
                 if (m == null) continue;
-                if (d.toFile().lastModified() < cutoff) { deleteTree(d); continue; }
+                if (!visible(d.getFileName().toString())) continue;
                 if (!search.isEmpty()) {
                     Map<String, Object> n = notes(d.getFileName().toString());
                     String hay = (m.get("filename") + " " + n.get("case") + " " + n.get("tags") + " " + n.get("note")).toLowerCase();
                     if (!hay.contains(search.toLowerCase())) continue;
                 }
+                m.put("_deletable", mayDelete(d.getFileName().toString()));
                 out.add(m);
             }
         } catch (IOException ignored) { }
@@ -142,12 +231,13 @@ public class AppServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse res) throws IOException {
+        if (!allowed(req, res)) return;
         String path = req.getServletPath();
         String info = req.getPathInfo() == null ? "" : req.getPathInfo().substring(1);
         Pages.Ctx c = ctx(req);
         switch (path) {
             case "" -> {
-                String q = Optional.ofNullable(req.getParameter("q")).orElse("").strip();
+                String q = param(req, "q").strip();
                 List<Map<String, Object>> analyses = list(q);
                 String main = Pages.home(c, analyses, q, (int) (Settings.MAX_UPLOAD >> 20), TTL_DAYS, null);
                 html(res, 200, Pages.layout(c, c.t("Captures"), "captures", "", main, recent(), null));
@@ -171,6 +261,8 @@ public class AppServlet extends HttpServlet {
                 html(res, 200, Pages.layout(c, c.t("Capture guide"), "guide", "", Pages.guidePage(c, q, (int) (Settings.MAX_UPLOAD >> 20), seconds, points), recent(), null));
             }
             case "/preferences" -> preferences(req, res, c, null, null);
+            case "/users" -> users(res, c, null, null);
+            case "/security" -> security(res, c, null, null);
             case "/audit" -> {
                 String event = Inspect.str(req.getParameterMap(), "event");
                 html(res, 200, Pages.layout(c, c.t("Activity log"), "audit", "", Pages.auditPage(c, Records.readAudit(event, 500), event), recent(), null));
@@ -211,7 +303,9 @@ public class AppServlet extends HttpServlet {
         if (p.length == 3 && p[1].equals("object") && p[2].matches("\\d{4}-[A-Za-z0-9._-]+")) {
             Path f = dir(p[0]).resolve("objects").resolve(p[2]);
             if (!Files.isRegularFile(f)) { res.sendError(404); return; }
-            download(res, "application/octet-stream", p[2].substring(5), Files.readAllBytes(f));
+            byte[] body;
+            try (InputStream in = Vault.in(f)) { body = in.readAllBytes(); }
+            download(res, "application/octet-stream", p[2].substring(5), body);
             return;
         }
         if (p.length != 2) { res.sendError(404); return; }
@@ -223,7 +317,7 @@ public class AppServlet extends HttpServlet {
             download(res, "text/html; charset=utf-8", base + "-report.html", Pages.reportPage(c, meta, result, css).getBytes(StandardCharsets.UTF_8));
             return;
         }
-        if (name.equals("requests") && fmt.equals("har")) { download(res, "application/json", base + "-requests.har", Exports.har(result, details(p[0])).getBytes(StandardCharsets.UTF_8)); return; }
+        if (name.equals("requests") && fmt.equals("har")) { download(res, "application/json", base + "-requests.har", Exports.har(Inspect.filtered(Inspect.query(req.getParameterMap()), result), details(p[0])).getBytes(StandardCharsets.UTF_8)); return; }
         if (!Exports.TABLES.contains(name) || !Exports.FORMATS.containsKey(fmt)) { res.sendError(404); return; }
         download(res, Exports.FORMATS.get(fmt), base + "-" + name + "." + fmt, Exports.render(Exports.table(name, result, c.lang()), fmt, c.lang()));
     }
@@ -239,6 +333,122 @@ public class AppServlet extends HttpServlet {
     private static String word(String v, String dflt) { return v != null && WORD.matcher(v).matches() ? v : dflt; }
     private static String hostArg(String v) { return v != null && v.matches("[0-9A-Fa-f:.]{2,45}") ? v : null; }
     private static String imageArg(String v) { return v != null && v.matches("[A-Za-z0-9._/:@-]{1,200}") ? v : CaptureGuide.DEFAULT_IMAGE; }
+
+    private void security(HttpServletResponse res, Pages.Ctx c, String message, String error) throws IOException {
+        html(res, error == null ? 200 : 422, Pages.layout(c, c.t("Encryption"), "security", "", Pages.securityPage(c, message, error), Vault.isUnlocked() ? recent() : List.of(), null));
+    }
+
+    /** Sets the master key the first time, which encrypts every file, or changes it later. Admin only. */
+    private void securityPost(HttpServletRequest req, HttpServletResponse res, String info) throws IOException {
+        Pages.Ctx c = ctx(req);
+        if (info.equals("alerts/clear")) { Vault.clearAlerts(); res.sendRedirect(req.getContextPath() + "/security"); return; }
+        Users.Current me = Users.current();
+        if (me == null || !me.setupAdmin()) { security(res, c, null, c.t("Only the setup admin can set the master key, since it is wrapped with that admin's password.")); return; }
+        String key = param(req, "master"), again = param(req, "again");
+        String problem = Vault.masterProblem(key);
+        if (problem == null && !key.equals(again)) problem = "The two keys are not the same.";
+        if (problem != null) { security(res, c, null, c.t(problem)); return; }
+        try {
+            if (!Vault.isSetUp()) {
+                Vault.setUp((String) req.getAttribute("pcap.admin.password"), key);
+                PARSED.clear();
+                Records.audit("vault_set_up", req.getRemoteAddr(), "");
+                security(res, c, c.t("The master key is set. Every file in the data folder is now encrypted."), null);
+            } else {
+                Vault.changeMaster(key);
+                Records.audit("master_key_changed", req.getRemoteAddr(), "");
+                security(res, c, c.t("The master key was changed."), null);
+            }
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IOException(e);
+        }
+    }
+
+    private void users(HttpServletResponse res, Pages.Ctx c, String message, String error) throws IOException {
+        html(res, error == null ? 200 : 422, Pages.layout(c, c.t("Users"), "users", "", Pages.usersPage(c, Users.list(), Users.groupList(), message, error), recent(), null));
+    }
+
+    /** Adds, changes and deletes users. Admin only, which AuthFilter checks. */
+    private void usersPost(HttpServletRequest req, HttpServletResponse res, String info) throws IOException {
+        Pages.Ctx c = ctx(req);
+        String name = param(req, "name").strip().toLowerCase(Locale.ROOT);
+        String group = param(req, "group").strip().toLowerCase(Locale.ROOT);
+        String password = req.getParameter("password");
+        Users.Role role = Users.Role.of(req.getParameter("role"));
+        String fullName = req.getParameter("full_name"), employeeId = req.getParameter("employee_id");
+        String[] p = info.split("/");
+        if (info.equals("ldap")) {
+            Map<String, String> ls = new HashMap<>();
+            for (String f : Ldap.FIELDS) ls.put(f, Optional.ofNullable(req.getParameter(f)).orElse("").strip());
+            String problem = Ldap.problem(ls);
+            if (problem != null) { users(res, c, null, c.t(problem)); return; }
+            Ldap.save(ls);
+            Records.audit("ldap_settings", req.getRemoteAddr(), ls.get("url"));
+            users(res, c, c.t("LDAP settings saved."), null);
+            return;
+        }
+        if (info.equals("ldap/test")) { users(res, c, Ldap.test(req.getParameter("test_user")), null); return; }
+        if (info.equals("groups")) {
+            String gname = param(req, "group_name").strip().toLowerCase(Locale.ROOT);
+            String problem = Users.groupProblem(gname);
+            if (problem != null) { users(res, c, null, c.t(problem)); return; }
+            Users.addGroup(gname, req.getParameter("description"));
+            Records.audit("group_added", req.getRemoteAddr(), gname);
+            users(res, c, c.t("Group {name} was added.", "name", gname), null);
+            return;
+        }
+        if (p.length == 3 && p[0].equals("groups")) {
+            String gname = p[1];
+            if (p[2].equals("update")) {
+                if (!Users.updateGroup(gname, req.getParameter("description"))) { res.sendError(404); return; }
+                Records.audit("group_changed", req.getRemoteAddr(), gname);
+            } else if (p[2].equals("delete")) {
+                String why = Users.deleteGroup(gname);
+                if ("missing".equals(why)) { res.sendError(404); return; }
+                if ("users".equals(why)) { users(res, c, null, c.t("Group {name} still has users. Move them to another group first.", "name", gname)); return; }
+                Records.audit("group_deleted", req.getRemoteAddr(), gname);
+            } else { res.sendError(404); return; }
+            res.sendRedirect(req.getContextPath() + "/users");
+            return;
+        }
+        if (info.isEmpty()) {
+            boolean ldap = "ldap".equals(req.getParameter("source"));
+            if (ldap && !Ldap.configured()) { users(res, c, null, c.t("Set up LDAP below before adding LDAP users.")); return; }
+            String problem = role == null ? "Choose a role." : Users.problem(name, group, ldap ? null : password == null ? "" : password, true);
+            if (problem != null) { users(res, c, null, c.t(problem, "n", Passwords.MIN_LENGTH)); return; }
+            if (fullName == null || fullName.isBlank()) { users(res, c, null, c.t("Enter the person's full name.")); return; }
+            Users.add(name, fullName, employeeId, group, role, password, ldap);
+            Records.audit("user_added", req.getRemoteAddr(), name + " " + group + " " + role.key());
+            users(res, c, c.t("{name} was added.", "name", name), null);
+            return;
+        }
+        if (p.length != 2) { res.sendError(404); return; }
+        String who = p[0];
+        boolean ok;
+        switch (p[1]) {
+            case "update" -> {
+                String problem = role == null ? "Choose a role." : Users.problem(who, group, null, false);
+                if (problem != null) { users(res, c, null, c.t(problem)); return; }
+                if (fullName != null && fullName.isBlank()) { users(res, c, null, c.t("Enter the person's full name.")); return; }
+                ok = Users.update(who, fullName, employeeId, group, role, null);
+                Records.audit("user_changed", req.getRemoteAddr(), who + " " + group + " " + role.key());
+            }
+            case "password" -> {
+                if (Users.isLdap(who)) { users(res, c, null, c.t("An LDAP user's password is set in the directory.")); return; }
+                String problem = Users.problem(who, null, password == null ? "" : password, false);
+                if (problem != null) { users(res, c, null, c.t(problem, "n", Passwords.MIN_LENGTH)); return; }
+                ok = Users.update(who, null, null, null, null, password);
+                Records.audit("user_password", req.getRemoteAddr(), who);
+            }
+            case "delete" -> {
+                ok = Users.delete(who);
+                Records.audit("user_deleted", req.getRemoteAddr(), who);
+            }
+            default -> { res.sendError(404); return; }
+        }
+        if (!ok) { res.sendError(404); return; }
+        res.sendRedirect(req.getContextPath() + "/users");
+    }
 
     private void preferences(HttpServletRequest req, HttpServletResponse res, Pages.Ctx c, String newToken, String error) throws IOException {
         Map<String, Object> limits = Records.thresholds();
@@ -273,7 +483,12 @@ public class AppServlet extends HttpServlet {
             ma = read(dir(ia).resolve("meta.json")); mb = read(dir(ib).resolve("meta.json"));
             Map<String, Object> ra = read(dir(ia).resolve("result.json")), rb = read(dir(ib).resolve("result.json"));
             if (ma != null && mb != null && ra != null && rb != null) {
-                if ("points".equals(Inspect.str(q, "mode"))) points = Compare.twoPoint(ra, rb);
+                if ("points".equals(Inspect.str(q, "mode"))) {
+                    Double offset = null;
+                    String raw = Optional.ofNullable(Inspect.str(q, "offset_ms")).orElse("").strip().replace(',', '.');
+                    if (!raw.isEmpty()) try { offset = Double.parseDouble(raw) / 1000; } catch (NumberFormatException ignored) { }
+                    points = Compare.twoPoint(ra, rb, offset);
+                }
                 else result = Compare.captures(c, ra, rb, side(q, "_a", null), side(q, "_b", side(q, "_a", null)));
             }
         }
@@ -290,12 +505,10 @@ public class AppServlet extends HttpServlet {
                 own.port() != null ? own.port() : fallback.port(), own.kind() != null ? own.kind() : fallback.kind(), own.url() != null ? own.url() : fallback.url(), own.minSize(), own.sizeOf(), own.start(), own.end());
     }
 
-    private static final Pattern DISPLAY_FILTER = Pattern.compile("[A-Za-z0-9_.:=!<>&|()\\s\"'/,-]{0,300}");
 
-    /** A display filter typed by the user. Only plain filter characters pass, since it goes to tshark as written. */
+    /** The display filter the user picked. Only a preset passes, since it goes to tshark as written. */
     private static String flt(HttpServletRequest req) {
-        String f = Optional.ofNullable(req.getParameter("filter")).orElse("").strip();
-        return DISPLAY_FILTER.matcher(f).matches() ? f : "";
+        return DisplayFilters.allowed(req.getParameter("filter"));
     }
 
     /** Headers and body previews of each request, kept apart from the main result so it stays small. */
@@ -326,10 +539,11 @@ public class AppServlet extends HttpServlet {
         Pages.Ctx c = c0.withId(id);
         Map<String, Object> meta = read(dir(id).resolve("meta.json")), result = read(dir(id).resolve("result.json"));
         if (meta == null || result == null) { res.sendError(404); return; }
+        seen(id);
         if (!(result.get("version") instanceof Number v) || v.intValue() < Analysis.RESULT_VERSION) {
             String body = Pages.crumbs(c, new String[][] {{c.t("Captures"), c.path() + "/"}, {(String) meta.get("filename"), null}})
                     + "<p class=\"warn\">" + Fmt.esc(c.t("This analysis was saved by an older version. Analyze the capture again to see TLS details.")) + "</p>"
-                    + "<form method=\"post\" action=\"" + c.path() + "/a/" + id + "/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\"><button class=\"link danger\">" + Fmt.esc(c.t("Delete")) + "</button></form>";
+                    + "<form method=\"post\" action=\"" + c.path() + "/a/" + id + "/delete\">" + Pages.csrf(c) + "<button class=\"link danger\">" + Fmt.esc(c.t("Delete")) + "</button></form>";
             html(res, 200, Pages.layout(c, (String) meta.get("filename"), "captures", "", body, recent(), id));
             return;
         }
@@ -375,19 +589,21 @@ public class AppServlet extends HttpServlet {
             if (!kept(id)) { res.sendError(404); return; }
             Path folder = dir(id).resolve("objects"), index = dir(id).resolve("objects.json");
             List<Map<String, Object>> found;
-            Object cached = Files.isRegularFile(index) ? Json.parse(Files.readString(index, StandardCharsets.UTF_8)) : null;
+            Object cached = Files.isRegularFile(index) ? Json.parse(Vault.readText(index)) : null;
             if (cached instanceof List<?> l) { @SuppressWarnings("unchecked") List<Map<String, Object>> fl = (List<Map<String, Object>>) l; found = fl; }
             else {
                 try { found = Views.objects(new TShark(Settings.tshark()), dir(id).resolve("capture.bin"), folder); }
                 catch (TShark.TsharkException e) { found = new ArrayList<>(); }
-                Files.writeString(index, Json.write(found), StandardCharsets.UTF_8);
+                // objects taken out of the capture are as secret as the capture
+                if (Files.isDirectory(folder)) try (var ds = Files.newDirectoryStream(folder)) { for (Path o : ds) Vault.encryptInPlace(o); }
+                Vault.writeText(index, Json.write(found));
             }
             main = Pages.objectsPage(c, meta, found);
             nav = Pages.capnav(c, id, "stats", issueCount);
             title = c.t("Export objects");
         } else if (parts.length == 2 && parts[1].equals("inspect")) {
             Map<String, String[]> params = req.getParameterMap();
-            main = Pages.inspectPage(c, meta, params, result, Inspect.run(Inspect.query(params), result));
+            main = Pages.inspectPage(c, meta, params, result, Inspect.run(Inspect.query(params), result, Inspect.slow(params)));
             nav = Pages.capnav(c, id, "inspect", issueCount);
             title = c.t("Inspect traffic");
         } else if (parts.length >= 3 && parts[1].equals("conn")) {
@@ -436,9 +652,8 @@ public class AppServlet extends HttpServlet {
             Map<String, Object> t = null;
             for (Map<String, Object> x : all) if (String.valueOf(((Number) x.get("id")).intValue()).equals(parts[2])) { t = x; break; }
             if (t == null) { res.sendError(404); return; }
-            // Istegin paket listesi parcasi: /a/{id}/txn/{tid}/packets
-            if (parts.length == 4) { requestPackets(res, c, id, t); return; }
             Map<String, Object> conn = connOf(result, String.valueOf(((Number) t.get("stream")).intValue()));
+            if (parts.length == 4) { requestPackets(res, c, id, t); return; }
             main = Pages.transactionPage(c, meta, t, conn, (Map<String, Object>) details(id).get(String.valueOf(((Number) t.get("id")).intValue())), kept(id));
             nav = Pages.capnav(c, id, "connections", issueCount);
             title = t.get("method") + " " + t.get("uri");
@@ -581,8 +796,9 @@ public class AppServlet extends HttpServlet {
     protected void doPost(HttpServletRequest req, HttpServletResponse res) throws IOException, ServletException {
         String path = req.getServletPath();
         String info = req.getPathInfo() == null ? "" : req.getPathInfo().substring(1);
-        if (path.equals("/api/v1")) { apiV1(req, res, info, "POST"); return; }
+        if (path.equals("/api/v1")) { if (allowed(req, res)) apiV1(req, res, info, "POST"); return; }
         if (!csrfOk(req)) { res.sendError(403, "Invalid form token"); return; }
+        if (!allowed(req, res)) return;
         switch (path) {
             case "/language" -> {
                 String lang = req.getParameter("language");
@@ -598,23 +814,42 @@ public class AppServlet extends HttpServlet {
                 res.sendRedirect(req.getContextPath() + back);
             }
             case "/upload" -> upload(req, res);
+            case "/users" -> usersPost(req, res, info);
+            case "/security" -> securityPost(req, res, info);
             case "/password" -> {
                 Pages.Ctx c = ctx(req);
-                String current = Optional.ofNullable(req.getParameter("current")).orElse(""), next = Optional.ofNullable(req.getParameter("new")).orElse(""), again = Optional.ofNullable(req.getParameter("again")).orElse("");
+                Users.Current me = Users.current();
+                if (me != null && !me.setupAdmin() && Users.isLdap(me.name())) { res.sendError(400, "An LDAP user's password is set in the directory."); return; }
+                if (me != null && !me.setupAdmin()) {
+                    // a user of users.json changes only their own password
+                    String cur = param(req, "current"), nw = param(req, "new"), ag = param(req, "again");
+                    String err = Users.verify(me.name(), cur) == null ? c.t("The current password is not correct.") : !nw.equals(ag) ? c.t("The two new passwords are not the same.") : null;
+                    if (err == null) { String pr = Users.problem(me.name(), null, nw, false); if (pr != null) err = c.t(pr, "n", Passwords.MIN_LENGTH); }
+                    if (err != null) { html(res, 422, Pages.layout(c, c.t("Password"), "password", "", Pages.passwordPage(c, err), recent(), null)); return; }
+                    Users.setOwnPassword(me.name(), nw);
+                    Records.audit("password", req.getRemoteAddr(), me.name());
+                    res.sendRedirect(req.getContextPath() + "/");
+                    return;
+                }
+                String current = param(req, "current"), next = param(req, "new"), again = param(req, "again");
                 String error = null;
                 if (!Passwords.matches(current)) error = c.t("The current password is not correct.");
                 else if (next.length() < Passwords.MIN_LENGTH) error = c.t("The new password must have at least {n} characters.", "n", Passwords.MIN_LENGTH);
                 else if (!next.equals(again)) error = c.t("The two new passwords are not the same.");
+                else if (next.equalsIgnoreCase("admin") || next.equalsIgnoreCase(Settings.adminUser())) error = c.t("The password cannot be the user name.");
                 if (error != null) { html(res, 422, Pages.layout(c, c.t("Password"), "password", "", Pages.passwordPage(c, error), recent(), null)); return; }
-                Passwords.save(next);
+                // with the vault set up, the admin password is the key of the admin key pair: it is re-wrapped, not stored
+                if (Vault.isSetUp()) {
+                    try { Vault.changeAdminPassword(current, next); } catch (java.security.GeneralSecurityException e) { throw new IOException(e); }
+                } else Passwords.save(next);
                 Records.audit("password", req.getRemoteAddr(), "");
-                res.sendRedirect(req.getContextPath() + "/preferences");
+                res.sendRedirect(req.getContextPath() + (Vault.isSetUp() ? "/preferences" : "/security"));
             }
             case "/preferences" -> {
                 List<String> bad = new ArrayList<>();
-                List<Map<String, Object>> targets = Records.parseTargets(Optional.ofNullable(req.getParameter("targets")).orElse(""), bad);
+                List<Map<String, Object>> targets = Records.parseTargets(param(req, "targets"), bad);
                 double slow;
-                try { slow = Double.parseDouble(Optional.ofNullable(req.getParameter("slow")).orElse("").strip()); if (!(slow > 0 && slow < 3600)) throw new NumberFormatException(); }
+                try { slow = Double.parseDouble(param(req, "slow").strip()); if (!(slow > 0 && slow < 3600)) throw new NumberFormatException(); }
                 catch (NumberFormatException e) { preferences(req, res, ctx(req), null, ctx(req).t("The slow limit must be a number of seconds.")); return; }
                 if (!bad.isEmpty()) { preferences(req, res, ctx(req), null, ctx(req).t("These lines could not be read: {lines}", "lines", String.join("; ", bad))); return; }
                 Records.saveThresholds(slow, targets);
@@ -657,6 +892,7 @@ public class AppServlet extends HttpServlet {
                     Records.audit("baseline", req.getRemoteAddr(), p[0]);
                     res.sendRedirect(req.getContextPath() + "/a/" + p[0]);
                 } else if (p[1].equals("delete")) {
+                    if (!mayDelete(p[0])) { res.sendError(403, "Only the one who uploaded it, or an admin, can delete this capture."); return; }
                     Records.audit("delete", req.getRemoteAddr(), p[0]);
                     deleteTree(dir(p[0]));
                     res.sendRedirect(req.getContextPath() + "/");
@@ -665,7 +901,7 @@ public class AppServlet extends HttpServlet {
                     n.put("case", cut(req.getParameter("case"), 80));
                     n.put("tags", cut(req.getParameter("tags"), 200));
                     n.put("note", cut(req.getParameter("note"), 4000));
-                    Files.writeString(dir(p[0]).resolve("notes.json"), Json.write(n), StandardCharsets.UTF_8);
+                    Vault.writeText(dir(p[0]).resolve("notes.json"), Json.write(n));
                     Records.audit("notes", req.getRemoteAddr(), p[0]);
                     res.sendRedirect(req.getContextPath() + "/a/" + p[0]);
                 } else res.sendError(404);
@@ -677,6 +913,7 @@ public class AppServlet extends HttpServlet {
     @Override
     protected void doDelete(HttpServletRequest req, HttpServletResponse res) throws IOException {
         if (!req.getServletPath().equals("/api/v1")) { res.sendError(405); return; }
+        if (!allowed(req, res)) return;
         apiV1(req, res, req.getPathInfo() == null ? "" : req.getPathInfo().substring(1), "DELETE");
     }
 
@@ -699,6 +936,7 @@ public class AppServlet extends HttpServlet {
                 if (p.length >= 2 && !ID.matcher(p[1]).matches()) { apiError(res, 404, "No such analysis."); return; }
                 if (p.length == 2 && method.equals("DELETE")) {
                     if (!Files.isDirectory(dir(p[1]))) { apiError(res, 404, "No such analysis."); return; }
+                    if (!mayDelete(p[1])) { apiError(res, 403, "Only the one who uploaded it, or an admin, can delete this capture."); return; }
                     Records.audit("delete", req.getRemoteAddr(), p[1]);
                     deleteTree(dir(p[1]));
                     res.setStatus(204);
@@ -797,7 +1035,7 @@ public class AppServlet extends HttpServlet {
             } catch (Exception e) { throw new IllegalArgumentException("host"); }
             parts.add((h.contains(":") ? "ipv6" : "ip") + ".addr == " + h);
         }
-        String port = Optional.ofNullable(req.getParameter("port")).orElse("").strip();
+        String port = param(req, "port").strip();
         if (!port.isEmpty()) {
             try {
                 int n = Integer.parseInt(port);
@@ -808,9 +1046,9 @@ public class AppServlet extends HttpServlet {
         Double from = epoch(req.getParameter("start")), until = epoch(req.getParameter("end"));
         if (from != null) parts.add("frame.time_epoch >= " + from);
         if (until != null) parts.add("frame.time_epoch <= " + until);
-        String display = Optional.ofNullable(req.getParameter("display_filter")).orElse("").strip();
+        String display = param(req, "display_filter").strip();
         if (!display.isEmpty()) {
-            if (!DISPLAY.matcher(display).matches()) throw new IllegalArgumentException("filter");
+            if (!DisplayFilters.PRESETS.containsKey(display)) throw new IllegalArgumentException("filter");
             parts.add("(" + display + ")");
         }
         return String.join(" and ", parts);
@@ -831,11 +1069,10 @@ public class AppServlet extends HttpServlet {
             if (api) apiError(res, 400, c.t("The filter is not valid.")); else fail(res, c, c.t("The filter is not valid."));
             return;
         }
-        byte[] rnd = new byte[8];
-        RANDOM.nextBytes(rnd);
-        String id = HexFormat.of().formatHex(rnd);
+        String id = Settings.randomHex(8);
         Path dir = dir(id);
         Files.createDirectories(dir);
+        writeOwner(dir);
         Path cap = dir.resolve("capture.bin");
         try (InputStream in = part.getInputStream()) {
             Files.copy(in, cap);
@@ -843,14 +1080,22 @@ public class AppServlet extends HttpServlet {
         String name = Path.of(Optional.ofNullable(part.getSubmittedFileName()).orElse("capture")).getFileName().toString();
         Path keylog = null;
         try {
-            Part kp = req.getPart("keylog");
-            if (kp != null && kp.getSize() > 0) {
-                if (kp.getSize() > (64L << 20)) throw new TShark.TsharkException(c.t("Key log is too large."));
+            // Several key logs, such as one per TLS leg on both sides of a NetScaler, are joined into one.
+            List<Path> logs = new ArrayList<>();
+            long keyBytes = 0;
+            for (Part kp : req.getParts()) {
+                if (!"keylog".equals(kp.getName()) || kp.getSize() == 0) continue;
+                keyBytes += kp.getSize();
+                if (keyBytes > KeyLogs.MAX_BYTES) throw new TShark.TsharkException(c.t("Key log is too large."));
+                Path one = dir.resolve("keylog-" + logs.size() + ".tmp");
+                try (InputStream in = kp.getInputStream()) { Files.copy(in, one); }
+                logs.add(one);
+                if (!KeyLogs.looksLikeKeyLog(one)) throw new TShark.TsharkException(c.t("This is not a TLS key log."));
+            }
+            if (!logs.isEmpty()) {
                 keylog = dir.resolve("keylog.tmp");
-                try (InputStream in = kp.getInputStream()) { Files.copy(in, keylog); }
-                String head = new String(Files.readAllBytes(keylog), 0, (int) Math.min(Files.size(keylog), 4096), StandardCharsets.ISO_8859_1);
-                if (!(head.contains("CLIENT_RANDOM ") || head.contains("_TRAFFIC_SECRET") || head.contains("RSA ")))
-                    throw new TShark.TsharkException(c.t("This is not a TLS key log."));
+                KeyLogs.join(logs, keylog);
+                for (Path one : logs) Files.deleteIfExists(one);
             }
             Path rsa = null;
             Part rp = req.getPart("rsa_key");
@@ -861,7 +1106,7 @@ public class AppServlet extends HttpServlet {
                 if (!new String(Files.readAllBytes(rsa), StandardCharsets.ISO_8859_1).contains("-----BEGIN")) throw new TShark.TsharkException(c.t("This is not a key or certificate file."));
             }
             List<String> decode = new ArrayList<>();
-            for (String rule : Optional.ofNullable(req.getParameter("decode_as")).orElse("").split("[;\\n]")) {
+            for (String rule : param(req, "decode_as").split("[;\\n]")) {
                 String r = rule.replace(" ", "").strip();
                 if (r.isEmpty()) continue;
                 java.util.regex.Matcher m = DECODE_AS.matcher(r);
@@ -880,14 +1125,16 @@ public class AppServlet extends HttpServlet {
             }
             if (parts.size() > 1) {
                 long total = 0;
-                for (Path pp : parts) { if (!looksLikeCapture(pp)) throw new TShark.TsharkException(c.t("This is not a pcap or pcapng capture.")); total += Files.size(pp); }
+                for (Path pp : parts) { if (!looksLikeCapture(pp)) throw new TShark.TsharkException(c.t("This is not a pcap, pcapng or NetScaler trace capture.")); total += Files.size(pp); }
                 if (total > Settings.MAX_UPLOAD) throw new TShark.TsharkException(c.t("The capture is larger than the limit."));
                 Path joined = dir.resolve("joined.bin");
                 TShark.merge(parts, joined, 300);
                 for (Path pp : parts) Files.deleteIfExists(pp);
                 Files.move(joined, cap);
             }
-            if (!looksLikeCapture(cap)) throw new TShark.TsharkException(c.t("This is not a pcap or pcapng capture."));
+            if (!looksLikeCapture(cap)) throw new TShark.TsharkException(c.t("This is not a pcap, pcapng or NetScaler trace capture."));
+            // the capture is encrypted before tshark reads it, which then reads it through the vault
+            Vault.encryptInPlace(cap);
             if (api) {
                 final Path fcap = cap, fkey = keylog, frsa = rsa;
                 final List<String> fdecode = decode;
@@ -958,12 +1205,19 @@ public class AppServlet extends HttpServlet {
         Files.move(out, f, StandardCopyOption.REPLACE_EXISTING);
     }
 
-    private static boolean looksLikeCapture(Path f) throws IOException {
-        byte[] h = new byte[4];
-        try (InputStream in = Files.newInputStream(f)) {
-            if (in.readNBytes(h, 0, 4) < 4) return false;
-        }
+    static boolean looksLikeCapture(Path f) throws IOException {
+        byte[] h = new byte[512];
+        int n;
+        try (InputStream in = Files.newInputStream(f)) { n = in.readNBytes(h, 0, h.length); }
+        if (n < 4) return false;
         int m = ((h[0] & 0xff) << 24) | ((h[1] & 0xff) << 16) | ((h[2] & 0xff) << 8) | (h[3] & 0xff);
-        return m == 0xa1b2c3d4 || m == 0xd4c3b2a1 || m == 0xa1b23c4d || m == 0x4d3cb2a1 || m == 0x0a0d0d0a;
+        return m == 0xa1b2c3d4 || m == 0xd4c3b2a1 || m == 0xa1b23c4d || m == 0x4d3cb2a1 || m == 0x0a0d0d0a || isNsTrace(h, n);
+    }
+
+    /** A NetScaler trace (nstrace, from "start nstrace") opens with a signature record that names its version,
+     *  such as "NetScaler V35 Performance Data". tshark reads versions 1.0 to 3.5. */
+    static boolean isNsTrace(byte[] head, int n) {
+        String text = new String(head, 0, n, StandardCharsets.ISO_8859_1);
+        return java.util.regex.Pattern.compile("NetScaler V\\d\\d Performance Data").matcher(text).find();
     }
 }

@@ -16,10 +16,11 @@ public final class Analysis {
     static final int CHART_POINTS = 150;
     static final double LOST_SHARE_HIGH = 0.01, MOST = 0.5;
     static final String[] PHASES = {"connect_time", "tls_time", "request_clean", "network", "queue_time", "service", "transfer_clean",
-            "retrans_time", "zero_window_time", "delayed_ack_time"};
-    static final Map<String, String> CAUSE_OF_PHASE = Map.of("connect_time", "connect", "tls_time", "tls", "request_clean", "upload",
-            "network", "network", "queue_time", "queueing", "service", "service", "transfer_clean", "transfer",
-            "retrans_time", "loss", "zero_window_time", "slow_client", "delayed_ack_time", "delayed_ack");
+            "retrans_time", "zero_window_time", "h2_flow_time", "delayed_ack_time"};
+    static final Set<String> PHASES_SET = Set.of(PHASES);
+    static final Map<String, String> CAUSE_OF_PHASE = Map.ofEntries(Map.entry("connect_time", "connect"), Map.entry("tls_time", "tls"), Map.entry("request_clean", "upload"),
+            Map.entry("network", "network"), Map.entry("queue_time", "queueing"), Map.entry("service", "service"), Map.entry("transfer_clean", "transfer"),
+            Map.entry("retrans_time", "loss"), Map.entry("zero_window_time", "slow_client"), Map.entry("h2_flow_time", "h2_flow_stall"), Map.entry("delayed_ack_time", "delayed_ack"));
 
     private Analysis() {}
 
@@ -28,6 +29,9 @@ public final class Analysis {
 
 
     static Integer statusOf(Map<String, Object> x) { return x.get("status") instanceof Number n ? n.intValue() : null; }
+    /** No answer, or a 5xx: what counts as failed for retries and for a URL over time. */
+    static boolean unansweredOr5xx(Map<String, Object> x) { Integer st = statusOf(x); return st == null || st == 0 || st >= 500; }
+
     static Integer streamOf(Map<String, Object> x) { return ((Number) x.get("stream")).intValue(); }
 
     static double d(Object o) { return o instanceof Number n ? n.doubleValue() : 0.0; }
@@ -41,6 +45,39 @@ public final class Analysis {
     static boolean error(Map<String, Object> x) {
         Integer st = statusOf(x);
         return st == null || st >= 500;
+    }
+
+    /** A request whose request ID was seen before on an attempt that failed and ended before it began: a retry by the gateway or the client.
+     *  Two legs of one proxy carry the same ID too, but they overlap in time, so they are not counted. */
+    static void markRetries(List<Map<String, Object>> txns) {
+        Map<Object, List<Map<String, Object>>> byId = new HashMap<>();
+        for (Map<String, Object> t : txns) if (t.get("request_id") != null) byId.computeIfAbsent(t.get("request_id"), k -> new ArrayList<>()).add(t);
+        for (List<Map<String, Object>> g : byId.values()) {
+            if (g.size() < 2) continue;
+            g.sort(Comparator.comparingDouble(t -> d(t.get("req_start"))));
+            int attempt = 1;
+            Map<String, Object> first = g.get(0), prev = first;
+            for (Map<String, Object> t : g.subList(1, g.size())) {
+                boolean failed = unansweredOr5xx(prev);
+                double prevEnd = prev.get("resp_end") != null ? d(prev.get("resp_end")) : d(prev.get("req_end"));
+                if (!failed || prevEnd > d(t.get("req_start"))) continue;
+                t.put("attempt", ++attempt); t.put("retry_of", prev.get("id"));
+                prev = t;
+            }
+        }
+    }
+
+    /** In a NetScaler trace each connection names its own PCB and the linked PCB of the other leg: client to VIP, and SNIP to server.
+     *  Sets ns_peer to the stream of the other leg. Either side naming the other is enough. */
+    static void linkNetScalerLegs(List<Map<String, Object>> conns) {
+        Map<Object, Map<String, Object>> byPcb = new HashMap<>();
+        for (Map<String, Object> c : conns) if (c.get("ns_pcb") != null) byPcb.putIfAbsent(c.get("ns_pcb"), c);
+        for (Map<String, Object> c : conns) {
+            Map<String, Object> peer = c.get("ns_linked_pcb") == null ? null : byPcb.get(c.get("ns_linked_pcb"));
+            if (peer == null || peer == c) continue;
+            c.putIfAbsent("ns_peer", peer.get("stream"));
+            peer.putIfAbsent("ns_peer", c.get("stream"));
+        }
     }
 
     public static Map<String, Object> run(TShark tshark, Path capture, String filter, long timeoutSeconds) throws TShark.TsharkException {
@@ -62,6 +99,7 @@ public final class Analysis {
             connOf.put((Integer) f.conn().get("stream"), f.conn());
             txns.addAll(f.txns());
         }
+        linkNetScalerLegs(conns);
         txns.sort(Comparator.comparing((Map<String, Object> x) -> streamOf(x)).thenComparingDouble(x -> d(x.get("req_start"))));
         int nextId = 1;
         Map<String, Object> details = new LinkedHashMap<>();
@@ -78,6 +116,7 @@ public final class Analysis {
             phases(x, cn);
         }
 
+        markRetries(txns);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("version", RESULT_VERSION);
         result.put("_details", details);
@@ -174,6 +213,8 @@ public final class Analysis {
         s.put("packets", b.total); s.put("tcp_packets", b.tcp); s.put("bytes", b.bytes);
         s.put("start", b.tFirst); s.put("end", b.tLast);
         s.put("connections", conns.size()); s.put("requests", txns.size());
+        s.put("health_checks", txns.stream().filter(t -> Boolean.TRUE.equals(t.get("health_check"))).count());
+        s.put("retries", txns.stream().filter(t -> t.get("retry_of") != null).count());
         return s;
     }
 
@@ -513,6 +554,7 @@ public final class Analysis {
                 new Rule("truncated", 1, true, x -> Boolean.TRUE.equals(x.get("truncated"))),
                 new Rule("loss", 2, true, x -> "loss".equals(x.get("cause"))),
                 new Rule("slow_client", 2, true, x -> d(x.get("zero_window_time")) > 0),
+                new Rule("retried", 2, true, x -> x.get("retry_of") != null),
                 new Rule("delayed_ack", 3, true, x -> d(x.get("delayed_ack_time")) > 0),
                 new Rule("queueing", 3, true, x -> d(x.get("queue_time")) > 0),
                 new Rule("small_mss", 3, false, c -> c.get("mss") instanceof Number n && n.intValue() < 1200),
@@ -544,7 +586,8 @@ public final class Analysis {
         long drops = b.events.stream().filter(e -> "ack_lost_segment".equals(e.get("event"))).count();
         if (drops > 0) found.add(issue("capture_drops", 1, drops, false));
         String[][] packetRules = {{"malformed", "2", "malformed"}, {"icmp_unreachable", "2", "icmp_unreachable"}, {"dns_errors", "2", "dns_error"}, {"tcp_flags_invalid", "2", "tcp_flags_invalid"},
-                {"port_reused", "2", "port_reused"}, {"ecn_congestion", "3", "ecn_congestion"}, {"sack_blocks", "3", "sack_blocks"}};
+                {"port_reused", "2", "port_reused"}, {"ecn_congestion", "3", "ecn_congestion"}, {"sack_blocks", "3", "sack_blocks"},
+                {"h2_flow_stall", "2", "h2_flow_stall"}, {"h2_reset", "2", "h2_reset"}, {"h2_goaway", "2", "h2_goaway"}, {"tls_no_client_cert", "2", "tls_no_client_cert"}};
         for (String[] pr : packetRules) {
             List<Object[]> hit = new ArrayList<>();
             for (Object[] pi : b.packetIssues) if (pr[2].equals(pi[2])) hit.add(pi);
@@ -590,6 +633,7 @@ public final class Analysis {
         Map<Key, double[]> groups = new LinkedHashMap<>(); // count, resumed, handshake sum, handshake n
         List<Map<String, Object>> problems = new ArrayList<>();
         Map<String, Map<String, Object>> certs = new TreeMap<>();
+        long[] mtls = new long[2];
         for (Map<String, Object> c : conns) {
             boolean seen = c.get("tls_version") != null || Boolean.TRUE.equals(c.get("tls_no_answer")) || c.get("tls_alert") != null;
             if (!seen) continue;
@@ -603,10 +647,14 @@ public final class Analysis {
                 for (String f : new String[] {"stream", "client", "server", "sni", "tls_alert", "tls_no_answer"}) p.put(f, c.get(f));
                 problems.add(p);
             }
+            if (Boolean.TRUE.equals(c.get("tls_client_cert_requested"))) {
+                mtls[0]++;
+                if (c.get("tls_client_certs") != null && ((Number) c.get("tls_client_certs")).intValue() > 0) mtls[1]++;
+            }
             if (c.get("tls_cert_expires") != null) {
                 String name = c.get("sni") != null ? (String) c.get("sni") : (String) c.get("server_ip");
                 Map<String, Object> m = certs.computeIfAbsent(c.get("tls_cert_expires") + "\u0000" + name, x -> {
-                    Map<String, Object> n = new LinkedHashMap<>(); n.put("name", name); n.put("expires", c.get("tls_cert_expires")); n.put("connections", 0); return n; });
+                    Map<String, Object> n = new LinkedHashMap<>(); n.put("name", name); n.put("expires", c.get("tls_cert_expires")); n.put("chain", c.get("tls_chain")); n.put("connections", 0); return n; });
                 m.put("connections", (Integer) m.get("connections") + 1);
             }
         }
@@ -619,7 +667,7 @@ public final class Analysis {
         });
         versions.sort((a, z) -> Long.compare((Long) z.get("connections"), (Long) a.get("connections")));
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("versions", versions); out.put("problems", problems); out.put("certificates", new ArrayList<>(certs.values()));
+        out.put("versions", versions); out.put("problems", problems); out.put("certificates", new ArrayList<>(certs.values())); out.put("client_cert_requested", mtls[0]); out.put("client_cert_sent", mtls[1]);
         return out;
     }
 

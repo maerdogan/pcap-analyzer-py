@@ -104,7 +104,7 @@ public final class Json {
             int st = i;
             while (i < s.length() && "+-0123456789.eE".indexOf(s.charAt(i)) >= 0) i++;
             String num = s.substring(st, i);
-            return num.matches("-?\\d{1,18}") ? (Object) Long.valueOf(num) : (Object) Double.valueOf(num);
+            return integral(num) ? (Object) Long.valueOf(num) : (Object) Double.valueOf(num);
         }
 
         private String string() {
@@ -126,5 +126,29 @@ public final class Json {
                 }
             }
         }
+    }
+
+    /** -?\d{1,18}, without a regex: this runs for every number of a large result. */
+    static boolean integral(String s) {
+        int start = s.startsWith("-") ? 1 : 0, n = s.length() - start;
+        if (n < 1 || n > 18) return false;
+        for (int k = start; k < s.length(); k++) { char ch = s.charAt(k); if (ch < '0' || ch > '9') return false; }
+        return true;
+    }
+
+    /** A copy of a parsed tree whose maps and lists the caller may change. Strings, numbers and booleans are shared, as they cannot change. */
+    @SuppressWarnings("unchecked")
+    static Object copy(Object o) {
+        if (o instanceof Map<?, ?> m) {
+            Map<String, Object> out = new java.util.LinkedHashMap<>(Math.max(4, (int) (m.size() / 0.75f) + 1));
+            for (Map.Entry<?, ?> e : m.entrySet()) out.put((String) e.getKey(), copy(e.getValue()));
+            return out;
+        }
+        if (o instanceof List<?> l) {
+            List<Object> out = new java.util.ArrayList<>(l.size());
+            for (Object v : l) out.add(copy(v));
+            return out;
+        }
+        return o;
     }
 }

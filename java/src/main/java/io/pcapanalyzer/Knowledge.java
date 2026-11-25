@@ -153,11 +153,6 @@ public final class Knowledge {
         return sb.toString();
     }
 
-    /** The topic an issue belongs to. */
-    public static String issueTopic(String key) {
-        Object e = map("issues").get(key);
-        return e instanceof Map<?, ?> m && m.get("topic") instanceof String s ? s : null;
-    }
 
     @SuppressWarnings("unchecked")
     private static List<String> matching(Object entries, Map<String, Object> facts, String lang) {

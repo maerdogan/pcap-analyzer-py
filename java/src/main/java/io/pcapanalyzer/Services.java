@@ -46,9 +46,11 @@ public final class Services {
         try { return v.startsWith("0x") ? (int) Long.parseLong(v.substring(2), 16) : Integer.valueOf(v); } catch (NumberFormatException e) { return null; }
     }
 
-    static Long toLong(String v) {
-        if (v == null || v.isEmpty()) return null;
-        try { return v.startsWith("0x") ? Long.parseLong(v.substring(2), 16) : Long.valueOf(v); } catch (NumberFormatException e) { return null; }
+    static Long toLong(String v) { return Builder.toLong(v); }
+
+    /** The last IPv4 address of a side ("src" or "dst"), else the IPv6 one. */
+    private static String ip(Map<String, String> p, String side) {
+        return Optional.ofNullable(last(get(p, "ip." + side))).filter(x -> !x.isEmpty()).orElse(last(get(p, "ipv6." + side)));
     }
 
     static List<String> many(String v) { return v == null || v.isEmpty() ? new ArrayList<>() : new ArrayList<>(Arrays.asList(v.split(String.valueOf(TShark.AGG), -1))); }
@@ -57,8 +59,7 @@ public final class Services {
     static String get(Map<String, String> p, String k) { return p.getOrDefault(k, ""); }
 
     static String[] ends(Map<String, String> p) {
-        String src = Optional.ofNullable(last(get(p, "ip.src"))).filter(x -> !x.isEmpty()).orElse(last(get(p, "ipv6.src")));
-        String dst = Optional.ofNullable(last(get(p, "ip.dst"))).filter(x -> !x.isEmpty()).orElse(last(get(p, "ipv6.dst")));
+        String src = ip(p, "src"), dst = ip(p, "dst");
         String sp, dp;
         if (!get(p, "tcp.srcport").isEmpty()) { sp = get(p, "tcp.srcport"); dp = get(p, "tcp.dstport"); } else { sp = last(get(p, "udp.srcport")); dp = last(get(p, "udp.dstport")); }
         return new String[] {src + ":" + sp, dst + ":" + dp};
@@ -383,8 +384,7 @@ public final class Services {
             if (get(p, "quic.connection.number").isEmpty()) continue;
             Double t = Builder.toDouble(get(p, "frame.time_epoch"));
             if (t == null) continue;
-            String si = Optional.ofNullable(last(get(p, "ip.src"))).filter(x -> !x.isEmpty()).orElse(last(get(p, "ipv6.src")));
-            String di = Optional.ofNullable(last(get(p, "ip.dst"))).filter(x -> !x.isEmpty()).orElse(last(get(p, "ipv6.dst")));
+            String si = ip(p, "src"), di = ip(p, "dst");
             String here = si + ":" + last(get(p, "udp.srcport")), there = di + ":" + last(get(p, "udp.dstport"));
             String key = here.compareTo(there) <= 0 ? here + "\u0000" + there : there + "\u0000" + here;
             Map<String, Object> c = conns.computeIfAbsent(key, k -> {

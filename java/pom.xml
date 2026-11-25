@@ -44,7 +44,7 @@
         <artifactId>maven-war-plugin</artifactId>
         <version>3.4.0</version>
       </plugin>
-      <!-- Ayni motorun komut satiri jar dosyasi: java -jar target/pcap-analyzer-cli.jar analyze capture.pcap -->
+      <!-- A command line jar of the same engine: java -jar target/pcap-analyzer-VERSION-cli.jar analyze capture.pcap -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>

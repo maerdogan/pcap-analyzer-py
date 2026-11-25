@@ -7,14 +7,35 @@ public final class Settings {
     public static final long MAX_UPLOAD = 1L << 30;
     private Settings() {}
 
-    public static Path workdir() {
-        String v = System.getenv("PCAP_ANALYZER_WORKDIR");
-        return Path.of(v != null && !v.isBlank() ? v : System.getProperty("java.io.tmpdir") + "/pcap-analyzer");
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
+    /** Random bytes as lowercase hex: ids of analyses, tokens and saved filters. */
+    static String randomHex(int bytes) {
+        byte[] b = new byte[bytes];
+        RANDOM.nextBytes(b);
+        return java.util.HexFormat.of().formatHex(b);
     }
 
+    public static Path workdir() {
+        String v = System.getenv("PCAP_ANALYZER_WORKDIR");
+        if (v != null && !v.isBlank()) return Path.of(v);
+        // next to the server that runs the app: Tomcat's instance folder, else the folder the JVM was started in
+        String base = System.getProperty("catalina.base");
+        return Path.of(base != null && !base.isBlank() ? base : System.getProperty("user.dir"), "data");
+    }
+
+    /** tshark: PCAP_ANALYZER_TSHARK when set, else the copy bundled in the WAR (Linux x86_64), else tshark from PATH. */
     public static String tshark() {
         String v = System.getenv("PCAP_ANALYZER_TSHARK");
-        return v != null && !v.isBlank() ? v : "tshark";
+        if (v != null && !v.isBlank()) return v;
+        Path bundled = BundledTShark.path();
+        return bundled != null ? bundled.toString() : "tshark";
+    }
+
+    /** Environment for a tshark run: the bundled copy reads its dissector data from its own share folder, unless WIRESHARK_DATA_DIR is set. */
+    public static void tsharkEnv(java.util.Map<String, String> env, String binary) {
+        Path data = BundledTShark.dataDir();
+        if (data != null && binary.equals(String.valueOf(BundledTShark.path())) && System.getenv("WIRESHARK_DATA_DIR") == null) env.put("WIRESHARK_DATA_DIR", data.toString());
     }
 
     public static String adminUser() {

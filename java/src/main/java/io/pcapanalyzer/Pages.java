@@ -6,6 +6,18 @@ import static io.pcapanalyzer.Fmt.esc;
 
 /** HTML of the pages, following the Python templates and their CSS classes. */
 public final class Pages {
+    /** Version of app.css and app.js in their URLs: the WAR's build time, so browsers fetch them again after every deployment, not only after a release. */
+    static final String ASSETS = Pages.VERSION + "." + Long.toString(assetsStamp(), 36);
+
+    private static long assetsStamp() {
+        try {
+            java.net.URL u = Pages.class.getResource("Pages.class");
+            return u == null ? System.currentTimeMillis() : u.openConnection().getLastModified();
+        } catch (java.io.IOException e) {
+            return System.currentTimeMillis();
+        }
+    }
+
     public static final String VERSION = "0.7.6";
 
     /** What every page needs: where the app lives, the language and the form token. */
@@ -33,9 +45,15 @@ public final class Pages {
             Map.entry("compare", "<rect x=\"3\" y=\"4\" width=\"7\" height=\"16\" rx=\"1.5\"/><rect x=\"14\" y=\"4\" width=\"7\" height=\"16\" rx=\"1.5\"/>"),
             Map.entry("trend", "<path d=\"M3 17l6-6 4 4 8-8\"/><path d=\"M15 7h6v6\"/>"),
             Map.entry("guide", "<path d=\"M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z\"/><path d=\"M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z\"/>"),
+            Map.entry("security", "<path d=\"M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z\"/><path d=\"M9.5 12l1.8 1.8 3.5-3.6\"/>"),
+            Map.entry("users", "<circle cx=\"9\" cy=\"8\" r=\"3.5\"/><path d=\"M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5\"/><path d=\"M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2 .7 3.2 2.4 3.6 5.2\"/>"),
+            Map.entry("password", "<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 10V7a4 4 0 0 1 8 0v3\"/>"),
             Map.entry("preferences", "<path d=\"M4 7h10M18 7h2M4 17h4M12 17h8\"/><circle cx=\"16\" cy=\"7\" r=\"2\"/><circle cx=\"10\" cy=\"17\" r=\"2\"/>"),
             Map.entry("stats", "<path d=\"M4 20h16M7 16v-5M12 16V6M17 16v-8\"/>"),
             Map.entry("menu", "<path d=\"M4 7h16M4 12h16M4 17h16\"/>"));
+
+    /** The hidden form token every POST form carries. */
+    static String csrf(Ctx c) { return "<input type=\"hidden\" name=\"csrf_token\" value=\"" + c.csrf() + "\">"; }
 
     static String icon(String name) {
         return "<svg class=\"icon\" viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\" focusable=\"false\">"
@@ -59,21 +77,26 @@ public final class Pages {
         sb.append("<link rel=\"icon\" href=\"").append(p).append("/static/brand/favicon.png\" type=\"image/png\">\n");
         sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/vendor/ag-grid.min.css\">\n");
         sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/vendor/ag-theme-quartz.min.css\">\n");
-        sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/app.css?v=").append(VERSION).append("\">\n");
+        sb.append("<link rel=\"stylesheet\" href=\"").append(p).append("/static/app.css?v=").append(ASSETS).append("\">\n");
         sb.append("<script src=\"").append(p).append("/static/vendor/ag-grid.min.js\" defer></script>\n");
         sb.append("<script src=\"").append(p).append("/static/vendor/echarts.min.js\" defer></script>\n");
-        sb.append("<script src=\"").append(p).append("/static/app.js?v=").append(VERSION).append("\" defer></script>\n</head>\n");
+        sb.append("<script src=\"").append(p).append("/static/app.js?v=").append(ASSETS).append("\" defer></script>\n</head>\n");
         sb.append("<body class=\"app\" data-words='").append(esc(words.toString()).replace("&quot;", "\"").replace("&#39;", "&apos;")).append("'>\n");
         sb.append("<a class=\"skip\" href=\"#main\">").append(esc(c.t("Skip to content"))).append("</a>\n");
         sb.append("<aside class=\"side\" id=\"side\">\n<a class=\"side-brand\" href=\"").append(p).append("/\" aria-label=\"pcap-analyzer\"><img src=\"").append(p)
-          .append("/static/brand/logo-on-dark.png\" alt=\"\" width=\"176\" height=\"64\"></a>\n<div class=\"side-scroll\">\n");
+          .append("/static/brand/logo-on-dark.png\" alt=\"\" width=\"196\" height=\"45\"></a>\n<div class=\"side-scroll\">\n");
         sb.append("<nav class=\"side-group\" aria-label=\"").append(esc(c.t("Main"))).append("\"><p class=\"side-label\" aria-hidden=\"true\">").append(esc(c.t("Main"))).append("</p>\n");
+        boolean admin = Users.can(Users.Role.ADMIN);
         String[][] mainNav = {{"captures", "/", "Captures"}, {"compare", "/compare", "Compare"}, {"trend", "/trend", "Trend"}, {"guide", "/capture-guide", "Capture guide"}};
         for (String[] n : mainNav)
             sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append(">").append(icon(n[0])).append("<span>").append(esc(c.t(n[2]))).append("</span></a>");
-        boolean inSettings = section.equals("preferences") || section.equals("password") || section.equals("audit");
+        String[][] settingsNav = admin
+            ? new String[][] {{"preferences", "/preferences", "Preferences"}, {"users", "/users", "Users"}, {"security", "/security", "Encryption"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}}
+            : new String[][] {{"password", "/password", "Password"}};
+        boolean inSettings = false;
+        for (String[] n : settingsNav) inSettings |= section.equals(n[0]);
         sb.append("<details class=\"side-sub\"").append(inSettings ? " open" : "").append("><summary>").append(icon("preferences")).append("<span>").append(esc(c.t("Settings"))).append("</span></summary>");
-        for (String[] n : new String[][] {{"preferences", "/preferences", "Preferences"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}})
+        for (String[] n : settingsNav)
             sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append("><span>").append(esc(c.t(n[2]))).append("</span></a>");
         sb.append("</details>");
         sb.append("</nav>\n");
@@ -92,11 +115,14 @@ public final class Pages {
         sb.append("<header class=\"top\"><button type=\"button\" class=\"icon-button nav-toggle\" aria-controls=\"side\" aria-expanded=\"false\" data-nav-toggle>")
           .append(icon("menu")).append("<span class=\"sr\">").append(esc(c.t("Menu"))).append("</span></button>\n<div class=\"top-end\">\n");
         sb.append("<form method=\"post\" action=\"").append(p).append("/language\" class=\"language\"><input type=\"hidden\" name=\"back\" value=\"").append(esc(c.uri()))
-          .append("\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><label><span>").append(esc(c.t("Language"))).append("</span><select name=\"language\" data-submit>");
+          .append("\">").append(csrf(c)).append("<label><span>").append(esc(c.t("Language"))).append("</span><select name=\"language\" data-submit>");
         for (String code : Knowledge.LANGUAGES)
             sb.append("<option value=\"").append(code).append("\"").append(code.equals(c.lang()) ? " selected" : "").append(">").append(Knowledge.LANGUAGE_NAMES.get(code)).append("</option>");
         sb.append("</select></label><noscript><button>").append(esc(c.t("Save"))).append("</button></noscript></form>\n</div></header>\n");
-        sb.append("<main class=\"page\" id=\"main\">").append(main).append("</main>\n</div>\n</body>\n</html>\n");
+        String notice = "";
+        if (Users.can(Users.Role.ADMIN) && !Vault.alerts().isEmpty() && !section.equals("security"))
+            notice = "<p class=\"warn\" role=\"alert\"><b>" + esc(c.t("{n} files were changed by hand in the data folder.", "n", Vault.alerts().size())) + "</b> <a href=\"" + p + "/security\">" + esc(c.t("See which")) + "</a></p>";
+        sb.append("<main class=\"page\" id=\"main\">").append(notice).append(main).append("</main>\n</div>\n</body>\n</html>\n");
         return sb.toString();
     }
 
@@ -146,17 +172,20 @@ public final class Pages {
                 sb.append("</div><dl class=\"tiles\"><div><dt>").append(esc(c.t("Size"))).append("</dt><dd>").append(Fmt.size((Number) m.get("size"))).append("</dd></div><div><dt>")
                   .append(esc(c.t("Connections"))).append("</dt><dd>").append(m.get("connections")).append("</dd></div><div><dt>").append(esc(c.t("Requests"))).append("</dt><dd>")
                   .append(m.get("transactions")).append("</dd></div></dl>");
-                sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf())
-                  .append("\"><button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", m.get("filename")))).append("\">").append(esc(c.t("Delete"))).append("</button></form></li>\n");
+                if (Boolean.TRUE.equals(m.get("_deletable"))) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/delete\">").append(csrf(c))
+                  .append("<button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", m.get("filename")))).append("\">").append(esc(c.t("Delete"))).append("</button></form></li>\n");
             }
             sb.append("</ol>");
         }
-        sb.append("</section>\n<section class=\"panel\">\n<h2>").append(esc(c.t("Analyze a capture"))).append("</h2>\n");
-        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/upload\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\">\n");
+        sb.append("</section>\n");
+        if (!Users.can(Users.Role.ANALYST)) sb.append("<p class=\"hint\">").append(esc(c.t("Your role can open and export captures. Ask an admin to upload or delete them."))).append("</p>\n");
+        else {
+        sb.append("<section class=\"panel\">\n<h2>").append(esc(c.t("Analyze a capture"))).append("</h2>\n");
+        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/upload\" enctype=\"multipart/form-data\">").append(csrf(c)).append("\n");
         sb.append("<label class=\"drop\"><span>").append(esc(c.t("Capture file, up to {n} MB (.cap, .pcap, .pcapng)", "n", maxMb))).append("</span><input type=\"file\" name=\"capture\" required></label>\n");
         sb.append("<details><summary>").append(esc(c.t("Add more parts of the same capture"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("More parts"))).append(" <input type=\"file\" name=\"more\" multiple></label></div><p class=\"hint\">")
           .append(esc(c.t("Parts are joined in time order. gzip files are unpacked first. The limit applies to the joined size."))).append("</p></details>\n");
-        sb.append("<details><summary>").append(esc(c.t("Decrypt HTTPS"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("TLS key log file"))).append(" <input type=\"file\" name=\"keylog\"></label><label>")
+        sb.append("<details><summary>").append(esc(c.t("Decrypt HTTPS"))).append("</summary><div class=\"fields\"><label>").append(esc(c.t("TLS key log file"))).append(" <input type=\"file\" name=\"keylog\" multiple><span class=\"hint\">").append(esc(c.t("Select one or more. Give the key logs of both sides of a proxy, such as NetScaler, to decrypt both."))).append("</span></label><label>")
           .append(esc(c.t("RSA private key"))).append(" <input type=\"file\" name=\"rsa_key\"></label></div><p class=\"hint\">")
           .append(esc(c.t("A key log works for all modern TLS. An RSA key only reads old RSA key exchange. Keys are removed after the analysis."))).append("</p></details>\n");
         sb.append("<details><summary>").append(esc(c.t("Analyze only part of the capture"))).append("</summary><div class=\"fields\">");
@@ -165,9 +194,10 @@ public final class Pages {
         sb.append("<label>").append(esc(c.t("TCP port"))).append(" <input name=\"port\" inputmode=\"numeric\"></label>");
         sb.append("<label>").append(esc(c.t("From"))).append(" <input name=\"start\" type=\"datetime-local\" step=\"1\"></label>");
         sb.append("<label>").append(esc(c.t("Until"))).append(" <input name=\"end\" type=\"datetime-local\" step=\"1\"></label>");
-        sb.append("<label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" <input name=\"display_filter\" spellcheck=\"false\" placeholder=\"http.host contains &quot;example&quot;\"></label>");
+        sb.append("<label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "display_filter", "")).append("</label>");
         sb.append("<label class=\"wide\">").append(esc(c.t("Decode As"))).append(" <input name=\"decode_as\" spellcheck=\"false\" placeholder=\"tcp.port==9000,http; udp.port==4433,quic\"><span class=\"hint\">")
           .append(esc(c.t("Read a port as another protocol, as Wireshark's Decode As does. Separate rules with ;"))).append("</span></label></div></details>\n<button class=\"primary\">").append(esc(c.t("Analyze capture"))).append("</button>\n</form>\n</section>\n</div>\n");
+        }
         return sb.toString();
     }
 
@@ -214,6 +244,34 @@ public final class Pages {
     }
 
     @SuppressWarnings("unchecked")
+    /** The "where the time went" table of a request, shown beside its row while the pointer is over the row. */
+    static String timeTip(Ctx c, Map<String, Object> phases) {
+        if (phases == null) return "";
+        List<Map<String, Object>> budget = new ArrayList<>();
+        phases.forEach((k, v) -> { Map<String, Object> m = new LinkedHashMap<>(); m.put("name", k); m.put("seconds", v); budget.add(m); });
+        return "<div class=\"wf-tip\" role=\"tooltip\"><h4>" + esc(c.t("Where the time went")) + "</h4>" + breakdown(c, budget) + "</div>";
+    }
+
+    static final int PAGE = 30;
+
+    /** Previous and next links for a list in pages of PAGE rows. Every other query parameter stays. */
+    static String pager(Ctx c, String id, Map<String, String[]> params, String name, int page, int pages, String anchor) {
+        if (pages <= 1) return "";
+        StringBuilder base = new StringBuilder();
+        params.forEach((k, v) -> { if (!k.equals(name) && v.length > 0 && !v[0].isBlank()) base.append(java.net.URLEncoder.encode(k, java.nio.charset.StandardCharsets.UTF_8)).append('=').append(java.net.URLEncoder.encode(v[0], java.nio.charset.StandardCharsets.UTF_8)).append('&'); });
+        String root = c.path() + "/a/" + id + "/inspect?" + base + name + "=";
+        StringBuilder sb = new StringBuilder("<nav class=\"pager pad\" aria-label=\"").append(esc(c.t("Page {n} of {m}", "n", page, "m", pages))).append("\">");
+        sb.append(page > 1 ? "<a href=\"" + root + (page - 1) + "#" + anchor + "\">" + esc(c.t("Previous")) + "</a>" : "<span class=\"off\">" + esc(c.t("Previous")) + "</span>");
+        sb.append("<span>").append(esc(c.t("Page {n} of {m}", "n", page, "m", pages))).append("</span>");
+        sb.append(page < pages ? "<a href=\"" + root + (page + 1) + "#" + anchor + "\">" + esc(c.t("Next")) + "</a>" : "<span class=\"off\">" + esc(c.t("Next")) + "</span>");
+        return sb.append("</nav>").toString();
+    }
+
+    static int pageOf(Map<String, String[]> params, String name, int pages) {
+        Integer n = Inspect.num(params, name);
+        return Math.max(1, Math.min(n == null ? 1 : n, Math.max(pages, 1)));
+    }
+
     static String waterfall(Ctx c, List<Map<String, Object>> rows) {
         double longest = rows.stream().mapToDouble(r -> Analysis.d(r.get("longest"))).max().orElse(0);
         StringBuilder sb = new StringBuilder("<ol class=\"waterfall\">\n");
@@ -228,7 +286,7 @@ public final class Pages {
             sb.append("<li>").append(status(c, t.get("status"))).append("<div class=\"wf-main\">").append(head).append("<p class=\"why\"><b>")
               .append(esc(Knowledge.topicLabel(cause, c.lang()))).append(".</b> ").append(esc(why)).append("</p></div><div class=\"wf-bar\"><div class=\"bar-fill\" style=\"width:")
               .append(String.format(Locale.ROOT, "%.1f", width)).append("%\">").append(strip(c, (Map<String, Object>) t.get("phases"))).append("</div></div><span class=\"took\">")
-              .append(Fmt.seconds(Analysis.dn(t.get("longest")))).append("</span></li>\n");
+              .append(Fmt.seconds(Analysis.dn(t.get("longest")))).append("</span>").append(timeTip(c, (Map<String, Object>) t.get("phases"))).append("</li>\n");
         }
         return sb.append("</ol>").toString();
     }
@@ -290,7 +348,7 @@ public final class Pages {
         }
         sb.append("</table></div></details>");
         if (id.equals(c.baseline())) sb.append("<span class=\"status s2\">").append(esc(c.t("Baseline"))).append("</span>");
-        else sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/baseline\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><button>").append(esc(c.t("Set as baseline"))).append("</button></form>");
+        else if (Users.can(Users.Role.ANALYST)) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/baseline\">").append(csrf(c)).append("<button>").append(esc(c.t("Set as baseline"))).append("</button></form>");
         sb.append("<a class=\"button primary\" href=\"").append(c.path()).append("/a/").append(id).append("/inspect\">").append(esc(c.t("Inspect traffic"))).append("</a></div></div>\n");
         if (tab.equals("overview") && requests > 0) sb.append(score(c, http)).append(metrics(c, http));
         sb.append("</header>\n<div id=\"tab\">");
@@ -338,8 +396,8 @@ public final class Pages {
             }
             sb.append("</section>");
             if (requests > 0) sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Status codes"))).append("</h2>").append(chart(c, "statuses", id, "statuses", false, false)).append("</section>");
-            sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Case and notes"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/a/").append(id)
-              .append("/notes\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><div class=\"fields\"><label>").append(esc(c.t("Case number")))
+            if (Users.can(Users.Role.ANALYST)) sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Case and notes"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/a/").append(id)
+              .append("/notes\">").append(csrf(c)).append("<div class=\"fields\"><label>").append(esc(c.t("Case number")))
               .append(" <input id=\"case\" name=\"case\" maxlength=\"80\" value=\"").append(esc(notes.get("case"))).append("\"></label><label>").append(esc(c.t("Tags")))
               .append(" <input id=\"tags\" name=\"tags\" maxlength=\"200\" value=\"").append(esc(notes.get("tags"))).append("\"></label><label class=\"wide\">").append(esc(c.t("Note")))
               .append(" <textarea id=\"note\" name=\"note\" rows=\"3\" maxlength=\"4000\">").append(esc(notes.get("note"))).append("</textarea></label></div><button>")
@@ -504,6 +562,15 @@ public final class Pages {
         facts(sb, c.t("Capture point"), c.t(Character.toUpperCase(raw.charAt(0)) + raw.substring(1)));
         facts(sb, "MSS", conn.get("mss") == null ? "–" : conn.get("mss"));
         facts(sb, "SACK", Boolean.TRUE.equals(conn.get("sack")) ? c.t("Yes") : c.t("No"));
+        if (conn.get("ns_peer") != null)
+            sb.append("<div><dt>").append(esc(c.t("Other side on the NetScaler"))).append("</dt><dd><a href=\"").append(c.path()).append("/a/").append(id).append("/conn/").append(conn.get("ns_peer")).append("\">")
+              .append(esc(c.t("Connection {n}", "n", conn.get("ns_peer")))).append("</a></dd></div>");
+        if (conn.get("ns_rtt_ms") != null) facts(sb, c.t("Round trip by the NetScaler"), conn.get("ns_rtt_ms") + " ms");
+        if (conn.get("proxy_version") != null) {
+            facts(sb, c.t("PROXY protocol"), conn.get("proxy_version"));
+            facts(sb, c.t("Client before the proxy"), conn.get("proxy_client") == null ? "–" : conn.get("proxy_client"));
+            facts(sb, c.t("Address the client asked for"), conn.get("proxy_server") == null ? "–" : conn.get("proxy_server"));
+        }
         facts(sb, c.t("Window scale"), conn.get("wscale") == null ? "–" : conn.get("wscale"));
         facts(sb, c.t("Smallest window"), conn.get("min_window") == null ? "–" : conn.get("min_window"));
         facts(sb, c.t("Retransmissions"), conn.get("retransmissions"));
@@ -546,11 +613,6 @@ public final class Pages {
     }
 
     @SuppressWarnings("unchecked")
-    public static String transactionPage(Ctx c, Map<String, Object> meta, Map<String, Object> t, Map<String, Object> conn, Map<String, Object> det) {
-        return transactionPage(c, meta, t, conn, det, false);
-    }
-
-    @SuppressWarnings("unchecked")
     public static String transactionPage(Ctx c, Map<String, Object> meta, Map<String, Object> t, Map<String, Object> conn, Map<String, Object> det, boolean kept) {
         String id = (String) meta.get("id");
         String cause = (String) t.get("cause");
@@ -569,6 +631,13 @@ public final class Pages {
           .append(breakdown(c, budget)).append("</section><section class=\"panel\"><h2>").append(esc(c.t("Request"))).append("</h2><dl class=\"facts\">");
         facts(sb, c.t("Host"), t.get("host") == null ? "–" : t.get("host"));
         facts(sb, c.t("Client"), t.get("client"));
+        if (Boolean.TRUE.equals(t.get("health_check"))) facts(sb, c.t("Health check"), c.t("Yes"));
+        if (t.get("retry_of") != null) facts(sb, c.t("Retry"), c.t("Attempt {n}, after request {id}", "n", t.get("attempt"), "id", t.get("retry_of")));
+        if (t.get("upstream_time") != null) {
+            facts(sb, c.t("Upstream time reported by the gateway"), Fmt.seconds(Analysis.dn(t.get("upstream_time"))));
+            if (t.get("gateway_time") != null) facts(sb, c.t("Time in the gateway itself"), Fmt.seconds(Analysis.dn(t.get("gateway_time"))));
+        }
+        if (t.get("original_client") != null) facts(sb, c.t("Original client"), t.get("original_client") + " (" + t.get("original_client_from") + ")");
         facts(sb, c.t("Server"), t.get("server"));
         facts(sb, "HTTP", t.get("http_version"));
         facts(sb, c.t("Request size"), Fmt.size((Number) t.get("req_bytes")));
@@ -601,6 +670,15 @@ public final class Pages {
                 + esc(c.t("Transfer")) + "</dt><dd>" + Fmt.seconds(Analysis.dn(t.get("transfer"))) + "</dd></div><div><dt>" + esc(c.t("Total")) + "</dt><dd>" + Fmt.seconds(Analysis.dn(t.get("total"))) + "</dd></div></dl>";
     }
 
+    static String harQuery(Map<String, String[]> params) {
+        StringBuilder q = new StringBuilder();
+        for (String k : new String[] {"src", "src_port", "dst", "port", "kind", "url", "min_size", "size_of", "start", "end"}) {
+            String v = Inspect.str(params, k);
+            if (v != null) q.append(q.length() == 0 ? "?" : "&").append(k).append('=').append(java.net.URLEncoder.encode(v, java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return q.toString();
+    }
+
     @SuppressWarnings("unchecked")
     public static String inspectPage(Ctx c, Map<String, Object> meta, Map<String, String[]> params, Map<String, Object> result, Map<String, Object> inspected) {
         String id = (String) meta.get("id");
@@ -630,6 +708,40 @@ public final class Pages {
         sb.append("<datalist id=\"srcs\">"); for (String x : srcs) sb.append("<option>").append(esc(x)).append("</option>");
         sb.append("</datalist><datalist id=\"dsts\">"); for (String x : dsts) sb.append("<option>").append(esc(x)).append("</option>");
         sb.append("</datalist><button class=\"primary\">").append(esc(c.t("Inspect"))).append("</button></form>");
+        Double fs = Inspect.dbl(params, "start"), fe = Inspect.dbl(params, "end");
+        if (fs != null || fe != null)
+            sb.append("<p class=\"hint\">").append(esc(c.t("Only requests from {start} to {end}.", "start", fs == null ? "" : Fmt.when(fs), "end", fe == null ? "" : Fmt.when(fe))))
+              .append(" <a href=\"").append(c.path()).append("/a/").append(id).append("/inspect\">").append(esc(c.t("Show the whole capture"))).append("</a></p>");
+        Map<Integer, Integer> perStream = new HashMap<>();
+        for (Map<String, Object> x : (List<Map<String, Object>>) result.get("transactions")) perStream.merge(((Number) x.get("stream")).intValue(), 1, Integer::sum);
+        List<Map<String, Object>> flows = new ArrayList<>();
+        for (Map<String, Object> k : conns) {
+            if (!Inspect.connMatches(new Inspect.Query(null, null, null, null, null, null, null, "total", fs, fe), k)) continue;
+            flows.add(k);
+        }
+        flows.sort((a, b) -> {
+            int ra = perStream.getOrDefault(((Number) a.get("stream")).intValue(), 0), rb = perStream.getOrDefault(((Number) b.get("stream")).intValue(), 0);
+            if (ra != rb) return Integer.compare(rb, ra);
+            int pa = (int) Analysis.d(a.get("packets")), pb = (int) Analysis.d(b.get("packets"));
+            if (pa != pb) return Integer.compare(pb, pa);
+            return Integer.compare(((Number) a.get("stream")).intValue(), ((Number) b.get("stream")).intValue());
+        });
+        if (!flows.isEmpty()) {
+            sb.append("<div class=\"top-flows\"><h3>").append(esc(c.t("Most called flows"))).append("</h3><p class=\"hint\">")
+              .append(esc(c.t("Source to destination with the most HTTP requests, or the most packets where no request was read. Select one to fill the filter and inspect it.")))
+              .append("</p><ul>");
+            for (Map<String, Object> x : flows.subList(0, Math.min(10, flows.size()))) {
+                int rq = perStream.getOrDefault(((Number) x.get("stream")).intValue(), 0);
+                sb.append("<li><button type=\"button\" class=\"flow-pick\" data-src=\"").append(esc(x.get("client_ip"))).append("\" data-src-port=\"").append(esc(x.get("client_port")))
+                  .append("\" data-dst=\"").append(esc(x.get("server_ip"))).append("\" data-port=\"").append(esc(x.get("server_port"))).append("\"><code>")
+                  .append(esc(x.get("client_ip"))).append(":").append(esc(x.get("client_port"))).append(" → ").append(esc(x.get("server_ip"))).append(":").append(esc(x.get("server_port")))
+                  .append("</code> <span class=\"muted\">").append(esc(x.get("kind"))).append(" · ")
+                  .append(esc(rq > 0 ? c.t("{n} requests", "n", rq) : c.t("{n} packets", "n", (long) Analysis.d(x.get("packets"))))).append("</span></button></li>");
+            }
+            sb.append("</ul></div>");
+        }
+        sb.append("<p class=\"chart-actions\"><a href=\"").append(c.path()).append("/export/").append(id).append("/requests.har").append(harQuery(params)).append("\">")
+          .append(esc(c.t("Download these requests (HAR)"))).append("</a></p>");
         sb.append("<div class=\"filter-row\">");
         List<Map<String, Object>> saved = Records.filters();
         if (!saved.isEmpty()) {
@@ -638,18 +750,39 @@ public final class Pages {
                 StringBuilder qs = new StringBuilder();
                 for (String k : Records.FILTER_FIELDS) if (f.get(k) != null && !f.get(k).toString().isEmpty()) qs.append(k).append('=').append(java.net.URLEncoder.encode(f.get(k).toString(), java.nio.charset.StandardCharsets.UTF_8)).append('&');
                 sb.append("<li><a href=\"").append(c.path()).append("/a/").append(id).append("/inspect?").append(qs).append("\">").append(esc(f.get("name"))).append("</a><form method=\"post\" action=\"").append(c.path()).append("/filters/").append(f.get("id"))
-                  .append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\"><button class=\"link danger\" aria-label=\"")
+                  .append("/delete\">").append(csrf(c)).append("<input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\"><button class=\"link danger\" aria-label=\"")
                   .append(esc(c.t("Delete filter {name}", "name", f.get("name")))).append("\">").append(esc(c.t("Delete"))).append("</button></form></li>");
             }
             sb.append("</ul>");
         }
-        sb.append("<details class=\"save\"><summary>").append(esc(c.t("Save this filter"))).append("</summary><form method=\"post\" action=\"").append(c.path()).append("/filters\" class=\"inline\"><input type=\"hidden\" name=\"csrf_token\" value=\"")
-          .append(c.csrf()).append("\"><input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\">");
+        sb.append("<details class=\"save\"><summary>").append(esc(c.t("Save this filter"))).append("</summary><form method=\"post\" action=\"").append(c.path()).append("/filters\" class=\"inline\">")
+          .append(csrf(c)).append("<input type=\"hidden\" name=\"back\" value=\"/a/").append(id).append("/inspect\">");
         for (String k : Records.FILTER_FIELDS) sb.append("<input type=\"hidden\" name=\"").append(k).append("\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, k)).orElse(""))).append("\">");
         sb.append("<label>").append(esc(c.t("Name"))).append(" <input name=\"filter_name\" required maxlength=\"80\"></label><button>").append(esc(c.t("Save filter"))).append("</button></form><p class=\"hint\">")
           .append(esc(c.t("Saves the filter as it was last applied."))).append("</p></details></div></section>");
         Map<String, Object> cs = (Map<String, Object>) inspected.get("connections"), rq = (Map<String, Object>) inspected.get("requests");
         if (((Number) cs.get("connections")).intValue() == 0) return sb.append("<p class=\"empty\">").append(esc(c.t("Nothing in this capture matches. Check the addresses, or clear a filter."))).append("</p>").toString();
+        // All traffic: every connection the filter above selects, most requests first, in pages
+        Inspect.Query fq = Inspect.query(params);
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Map<String, Object> k : conns) if (Inspect.connMatches(fq, k)) rows.add(k);
+        rows.sort((a, b) -> {
+            int ra = perStream.getOrDefault(((Number) a.get("stream")).intValue(), 0), rb = perStream.getOrDefault(((Number) b.get("stream")).intValue(), 0);
+            if (ra != rb) return Integer.compare(rb, ra);
+            return Integer.compare((int) Analysis.d(b.get("packets")), (int) Analysis.d(a.get("packets")));
+        });
+        int cPages = (rows.size() + PAGE - 1) / PAGE, cPage = pageOf(params, "conn_page", cPages);
+        sb.append("<section class=\"panel flush\" id=\"all-traffic\"><div class=\"section-head pad\"><h2>").append(esc(c.t("All traffic"))).append("</h2><p class=\"muted\">").append(esc(c.t("{n} connections", "n", rows.size())))
+          .append("</p></div><div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Client"))).append("</th><th>").append(esc(c.t("Server"))).append("</th><th>").append(esc(c.t("Type")))
+          .append("</th><th class=\"num\">").append(esc(c.t("Requests"))).append("</th><th class=\"num\">").append(esc(c.t("Packets"))).append("</th><th class=\"num\">").append(esc(c.t("Duration"))).append("</th><th>").append(esc(c.t("Closed by"))).append("</th></tr></thead><tbody>");
+        for (Map<String, Object> k : rows.subList((cPage - 1) * PAGE, Math.min(rows.size(), cPage * PAGE))) {
+            String by = k.get("closed_by") == null ? "–" : String.valueOf(k.get("closed_by"));
+            sb.append("<tr><td><a href=\"").append(c.path()).append("/a/").append(id).append("/conn/").append(k.get("stream")).append("\">").append(esc(k.get("client_ip"))).append(":").append(esc(k.get("client_port"))).append("</a></td><td>")
+              .append(esc(k.get("server_ip"))).append(":").append(esc(k.get("server_port"))).append("</td><td>").append(esc(k.get("kind"))).append("</td><td class=\"num\">").append(perStream.getOrDefault(((Number) k.get("stream")).intValue(), 0))
+              .append("</td><td class=\"num\">").append((long) Analysis.d(k.get("packets"))).append("</td><td class=\"num\">").append(Fmt.seconds(Analysis.dn(k.get("duration")))).append("</td><td>")
+              .append(esc("–".equals(by) ? by : c.t(Character.toUpperCase(by.charAt(0)) + by.substring(1)))).append("</td></tr>");
+        }
+        sb.append("</tbody></table></div>").append(pager(c, id, params, "conn_page", cPage, cPages, "all-traffic")).append("</section>");
         if (((Number) rq.get("requests")).intValue() > 0) sb.append("<section class=\"hero\">").append(score(c, rq)).append(metrics(c, rq)).append("</section>");
         sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Summary"))).append("</h2><dl class=\"facts\">");
         facts(sb, c.t("TCP connections"), cs.get("connections")); facts(sb, c.t("Successful"), cs.get("ok")); facts(sb, c.t("Carrying HTTP"), cs.get("http")); facts(sb, c.t("TCP only"), cs.get("tcp_only"));
@@ -657,12 +790,14 @@ public final class Pages {
         sb.append("</dl></section>");
         List<Map<String, Object>> urls = (List<Map<String, Object>>) inspected.get("urls");
         if (!urls.isEmpty()) {
-            sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("By URL"))).append("</h2><p class=\"hint pad\">").append(esc(c.t("Select a column title to sort by it, and again to turn the order around.")))
+            sb.append(urlView(c, urls, Analysis.d(inspected.get("bucket_s"))));
+            sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("By URL"))).append("</h2><p class=\"hint pad\">").append(esc(c.t("Select a row to see that URL over time above. Select a column title to sort by it.")))
               .append("</p><div class=\"table-wrap\"><table data-sortable><thead><tr><th data-sort=\"text\">").append(esc(c.t("Method"))).append("</th><th data-sort=\"text\">URL</th>");
             for (String h : new String[] {"Requests", "Failed", "Average", "95th percentile", "Slowest"}) sb.append("<th class=\"num\" data-sort=\"num\">").append(esc(c.t(h))).append("</th>");
             sb.append("<th data-sort=\"text\">").append(esc(c.t("Status"))).append("</th></tr></thead><tbody>");
+            int ui = 0;
             for (Map<String, Object> u : urls) {
-                sb.append("<tr><td>").append(esc(u.get("method"))).append("</td><td>").append(esc(u.get("url"))).append("</td>");
+                sb.append("<tr class=\"clickable\" data-url-pick=\"").append(ui++).append("\" tabindex=\"0\"><td>").append(esc(u.get("method"))).append("</td><td>").append(esc(u.get("url"))).append("</td>");
                 for (String k : new String[] {"requests", "failed"}) sb.append("<td class=\"num\" data-value=\"").append(u.get(k)).append("\">").append(u.get(k)).append("</td>");
                 for (String k : new String[] {"avg_total", "p95_total", "max_total"}) sb.append("<td class=\"num\" data-value=\"").append(u.get(k) == null ? -1 : u.get(k)).append("\">").append(Fmt.seconds(Analysis.dn(u.get(k)))).append("</td>");
                 StringBuilder st = new StringBuilder();
@@ -672,7 +807,66 @@ public final class Pages {
             sb.append("</tbody></table></div></section>");
         }
         List<Map<String, Object>> slow = (List<Map<String, Object>>) inspected.get("slowest");
-        if (!slow.isEmpty()) sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Slowest {n} requests", "n", slow.size()))).append("</h2>").append(waterfall(c, slow)).append("</section>");
+        if (((Number) rq.get("requests")).intValue() > 0) {
+            sb.append("<section class=\"panel flush\" id=\"slowest\"><h2 class=\"pad\">").append(esc(c.t("Slowest {n} requests", "n", slow.size()))).append("</h2>");
+            sb.append("<form class=\"inline pad\" method=\"get\" action=\"").append(c.path()).append("/a/").append(id).append("/inspect#slowest\">");
+            for (String k : Records.FILTER_FIELDS) { String v = Inspect.str(params, k); if (v != null) sb.append("<input type=\"hidden\" name=\"").append(k).append("\" value=\"").append(esc(v)).append("\">"); }
+            for (String k : new String[] {"start", "end"}) { String v = Inspect.str(params, k); if (v != null) sb.append("<input type=\"hidden\" name=\"").append(k).append("\" value=\"").append(esc(v)).append("\">"); }
+            sb.append("<label>").append(esc(c.t("Request contains"))).append(" <input name=\"slow_q\" spellcheck=\"false\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, "slow_q")).orElse(""))).append("\" placeholder=\"GET /api\"></label>");
+            String sst = Optional.ofNullable(Inspect.str(params, "slow_status")).orElse("");
+            sb.append("<label>").append(esc(c.t("Status"))).append(" <select name=\"slow_status\"><option value=\"\">").append(esc(c.t("All"))).append("</option>");
+            for (String s : Inspect.STATUS_CLASSES) sb.append("<option value=\"").append(s).append("\"").append(s.equals(sst) ? " selected" : "").append(">").append(esc(s.equals("none") ? c.t("No answer") : s)).append("</option>");
+            sb.append("</select></label>");
+            sb.append("<label>").append(esc(c.t("Duration from, ms"))).append(" <input name=\"slow_min_ms\" type=\"number\" min=\"0\" step=\"any\" size=\"7\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, "slow_min_ms")).orElse(""))).append("\"></label>");
+            sb.append("<label>").append(esc(c.t("to, ms"))).append(" <input name=\"slow_max_ms\" type=\"number\" min=\"0\" step=\"any\" size=\"7\" value=\"").append(esc(Optional.ofNullable(Inspect.str(params, "slow_max_ms")).orElse(""))).append("\"></label>");
+            sb.append("<button>").append(esc(c.t("Filter"))).append("</button></form>");
+            sb.append("<p class=\"hint pad\">").append(esc(c.t("{n} requests match.", "n", inspected.get("slow_matched")))).append("</p>");
+            if (slow.isEmpty()) sb.append("<p class=\"empty\">").append(esc(c.t("No request matches this filter."))).append("</p>");
+            else {
+                int pages = (slow.size() + PAGE - 1) / PAGE, page = pageOf(params, "slow_page", pages);
+                sb.append(waterfall(c, slow.subList((page - 1) * PAGE, Math.min(slow.size(), page * PAGE)))).append(pager(c, id, params, "slow_page", page, pages, "slowest"));
+            }
+            sb.append("</section>");
+        }
+        return sb.toString();
+    }
+
+    /** One URL over time, as a dashboard panel: a time series of its duration split into phases, and beside it where the average time went.
+     *  Every URL's series and table are in the page; selecting a row in the URL table switches them. */
+    private static String urlView(Ctx c, List<Map<String, Object>> urls, double bucket) {
+        StringBuilder sb = new StringBuilder("<section class=\"panel url-view\" id=\"url-view\"><div class=\"section-head\"><h2 data-url-title>").append(esc(urls.get(0).get("method") + " " + urls.get(0).get("url")))
+            .append("</h2><p class=\"muted\">").append(esc(c.t("Per {time}", "time", Fmt.seconds(bucket)))).append("</p></div><div class=\"url-view-body\"><div class=\"chart\" data-url-chart></div><div class=\"url-side\">");
+        List<Object> data = new ArrayList<>();
+        Map<String, String> labels = new LinkedHashMap<>();
+        for (String ph : Analysis.PHASES) labels.put(ph, Knowledge.phaseLabel(ph, c.lang()));
+        for (int i = 0; i < urls.size(); i++) {
+            Map<String, Object> u = urls.get(i);
+            Map<String, Object> bd = u.get("breakdown") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+            sb.append("<div class=\"url-table\" data-url-table=\"").append(i).append("\"").append(i == 0 ? "" : " hidden").append(">");
+            sb.append("<dl class=\"facts\">");
+            facts(sb, c.t("Requests"), u.get("requests")); facts(sb, c.t("Average"), Fmt.seconds(Analysis.dn(u.get("avg_total")))); facts(sb, c.t("95th percentile"), Fmt.seconds(Analysis.dn(u.get("p95_total"))));
+            sb.append("</dl><table class=\"breakdown\"><tbody>");
+            java.util.function.BiConsumer<String, String> row = (label, key) -> {
+                Double v = Analysis.dn(bd.get(key));
+                if (v != null && v > 0) sb.append("<tr><td>").append(Analysis.PHASES_SET.contains(key) ? "<i class=\"swatch ph-" + key + "\"></i>" : "").append(esc(label)).append("</td><td class=\"num\">").append(Fmt.seconds(v)).append("</td></tr>");
+            };
+            row.accept(c.t("Client ↔ capture point, round trip"), "rtt_client");
+            row.accept(c.t("Capture point ↔ server, round trip"), "rtt_server");
+            sb.append("<tr class=\"sep\"><td colspan=\"2\">").append(esc(c.t("Average request"))).append("</td></tr>");
+            for (String ph : Analysis.PHASES) {
+                row.accept(labels.get(ph), ph);
+                if (ph.equals("service")) { row.accept("↳ " + c.t("Upstream time reported by the gateway"), "upstream_time"); row.accept("↳ " + c.t("Time in the gateway itself"), "gateway_time"); }
+            }
+            sb.append("</tbody></table></div>");
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("title", u.get("method") + " " + u.get("url")); d.put("series", u.get("series"));
+            data.add(d);
+        }
+        sb.append("<p class=\"hint\">").append(esc(c.t("Round trips are per connection and are not part of the total. The phases add up to the average."))).append("</p></div></div>");
+        Map<String, Object> all = new LinkedHashMap<>();
+        all.put("urls", data); all.put("labels", labels); all.put("bucket", bucket);
+        all.put("names", Map.of("requests", c.t("Requests"), "avg", c.t("Average"), "p95", c.t("95th percentile"), "failed", c.t("Failed")));
+        sb.append("<script type=\"application/json\" data-url-data>").append(Json.write(all).replace("</", "<\\/")).append("</script></section>");
         return sb.toString();
     }
 
@@ -701,11 +895,17 @@ public final class Pages {
                   .append("</td><td>").append(esc(p.get("sni") == null ? "–" : p.get("sni"))).append("</td><td>").append(esc(Boolean.TRUE.equals(p.get("tls_no_answer")) ? c.t("No answer to ClientHello") : p.get("tls_alert"))).append("</td></tr>");
             sb.append("</tbody></table></div></section>");
         }
+        long asked = ((Number) tls.getOrDefault("client_cert_requested", 0L)).longValue();
+        if (asked > 0) {
+            long sent = ((Number) tls.getOrDefault("client_cert_sent", 0L)).longValue();
+            sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Client certificates (mTLS)"))).append("</h2><p>").append(esc(c.t("Asked for")))
+              .append(": ").append(asked).append(" · ").append(esc(c.t("Sent"))).append(": ").append(sent).append(" · ").append(esc(c.t("Not sent"))).append(": ").append(asked - sent).append("</p></section>");
+        }
         List<Map<String, Object>> certs = (List<Map<String, Object>>) tls.get("certificates");
         if (!certs.isEmpty()) {
             sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Certificates seen"))).append("</h2><div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Server name"))).append("</th><th>")
-              .append(esc(c.t("Expires"))).append("</th><th class=\"num\">").append(esc(c.t("Connections"))).append("</th></tr></thead><tbody>");
-            for (Map<String, Object> k : certs) sb.append("<tr><td>").append(esc(k.get("name"))).append("</td><td>").append(esc(k.get("expires"))).append("</td><td class=\"num\">").append(k.get("connections")).append("</td></tr>");
+              .append(esc(c.t("Expires"))).append("</th><th class=\"num\">").append(esc(c.t("Chain"))).append("</th><th class=\"num\">").append(esc(c.t("Connections"))).append("</th></tr></thead><tbody>");
+            for (Map<String, Object> k : certs) sb.append("<tr><td>").append(esc(k.get("name"))).append("</td><td>").append(esc(k.get("expires"))).append("</td><td class=\"num\">").append(k.get("chain") == null ? "–" : k.get("chain")).append("</td><td class=\"num\">").append(k.get("connections")).append("</td></tr>");
             sb.append("</tbody></table></div><p class=\"hint\">").append(esc(c.t("TLS 1.3 encrypts the certificate, so it is visible only with a key log."))).append("</p></section>");
         }
         return sb.toString();
@@ -825,8 +1025,8 @@ public final class Pages {
     public static String preferencesPage(Ctx c, Map<String, Object> limits, String targetsText, List<Map<String, Object>> tokens, String newToken, String error) {
         StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>" + esc(c.t("Preferences")) + "</h1><p class=\"muted\">" + esc(c.t("These apply to everyone who uses this install.")) + " <a href=\"" + c.path() + "/audit\">" + esc(c.t("Activity log")) + "</a></p></div></header>");
         if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
-        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Limits"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/preferences\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf())
-          .append("\"><div class=\"fields\"><label>").append(esc(c.t("Slow request limit (seconds)"))).append(" <input id=\"slow\" name=\"slow\" inputmode=\"decimal\" value=\"").append(limits.get("slow_s")).append("\"></label><label class=\"wide\">")
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Limits"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/preferences\">").append(csrf(c))
+          .append("<div class=\"fields\"><label>").append(esc(c.t("Slow request limit (seconds)"))).append(" <input id=\"slow\" name=\"slow\" inputmode=\"decimal\" value=\"").append(limits.get("slow_s")).append("\"></label><label class=\"wide\">")
           .append(esc(c.t("URL targets"))).append(" <textarea id=\"targets\" name=\"targets\" rows=\"5\" spellcheck=\"false\" placeholder=\"/api/orders/* 0.5\">").append(esc(targetsText)).append("</textarea></label></div><p class=\"hint\">")
           .append(esc(c.t("One URL pattern and its limit in seconds per line. The slow limit applies to captures you analyze from now on. URL targets apply to every capture."))).append("</p><button class=\"primary\">").append(esc(c.t("Save limits"))).append("</button></form></section>");
         sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Password"))).append("</h2><a class=\"button\" href=\"").append(c.path()).append("/password\">").append(esc(c.t("Change the password"))).append("</a></section>");
@@ -836,10 +1036,10 @@ public final class Pages {
             sb.append("<table><thead><tr><th>").append(esc(c.t("Name"))).append("</th><th>").append(esc(c.t("Created"))).append("</th><th></th></tr></thead><tbody>");
             for (Map<String, Object> t : tokens)
                 sb.append("<tr><td>").append(esc(t.get("name") == null || t.get("name").toString().isEmpty() ? t.get("id") : t.get("name"))).append("</td><td>").append(Fmt.when(Analysis.dn(t.get("created")))).append("</td><td class=\"num\"><form method=\"post\" action=\"")
-                  .append(c.path()).append("/tokens/").append(t.get("id")).append("/delete\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><button class=\"link danger\">").append(esc(c.t("Revoke"))).append("</button></form></td></tr>");
+                  .append(c.path()).append("/tokens/").append(t.get("id")).append("/delete\">").append(csrf(c)).append("<button class=\"link danger\">").append(esc(c.t("Revoke"))).append("</button></form></td></tr>");
             sb.append("</tbody></table>");
         }
-        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/tokens\" class=\"inline\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><label>").append(esc(c.t("Name")))
+        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/tokens\" class=\"inline\">").append(csrf(c)).append("<label>").append(esc(c.t("Name")))
           .append(" <input id=\"tokenName\" name=\"name\" required maxlength=\"80\"></label><button>").append(esc(c.t("Create token"))).append("</button></form></section>");
         return sb.toString();
     }
@@ -911,6 +1111,7 @@ public final class Pages {
         sb.append("</div><p class=\"hint\">").append(esc(c.t("Filters left empty on B use the values of A. Fill B when addresses differ, for example before and after NAT."))).append("</p>")
           .append("<label class=\"check\"><input type=\"radio\" name=\"mode\" value=\"captures\"").append(!mode.equals("points") ? " checked" : "").append("> ").append(esc(c.t("Before and after: compare the two as a whole"))).append("</label>")
           .append("<label class=\"check\"><input type=\"radio\" name=\"mode\" value=\"points\"").append(mode.equals("points") ? " checked" : "").append("> ").append(esc(c.t("Same traffic at two points: match each request. A is nearer the client"))).append("</label>")
+          .append("<label>").append(esc(c.t("Clock of B minus clock of A, ms"))).append(" <input name=\"offset_ms\" inputmode=\"decimal\" size=\"8\" value=\"").append(esc(Optional.ofNullable(Inspect.str(q, "offset_ms")).orElse(""))).append("\" placeholder=\"").append(esc(c.t("estimated"))).append("\"></label>")
           .append("<button class=\"primary\">").append(esc(c.t("Compare"))).append("</button></form></section>");
         if (result != null) {
             for (String n : (List<String>) result.get("notes")) sb.append("<p class=\"warn\">").append(esc(n)).append("</p>");
@@ -962,6 +1163,10 @@ public final class Pages {
             }
             sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("Same requests at two points"))).append("</h2><p class=\"hint\">")
               .append(esc(c.t("The split into two directions is an estimate. It takes the fastest trip each way as equal to remove the clock difference of {ms} ms.", "ms", String.format(Locale.ROOT, "%.1f", Analysis.d(points.get("clock_skew")) * 1000)))).append("</p>");
+            if (Boolean.TRUE.equals(points.get("clock_given"))) sb.append("<p class=\"hint\">").append(esc(c.t("The clock difference you gave is used instead of the estimate."))).append("</p>");
+            else if (Math.abs(Analysis.d(points.get("clock_drift_ppm"))) >= 20)
+                sb.append("<p class=\"warn\">").append(esc(c.t("The clocks also drift apart by {ppm} ppm, {ms} ms a minute. The split takes this into account; sync both capture hosts with NTP for exact numbers.",
+                    "ppm", String.format(Locale.ROOT, "%.0f", Analysis.d(points.get("clock_drift_ppm"))), "ms", String.format(Locale.ROOT, "%.1f", Analysis.d(points.get("clock_drift_ppm")) * 60 / 1000)))).append("</p>");
             List<Map<String, Object>> rows = (List<Map<String, Object>>) points.get("rows");
             if (!rows.isEmpty()) {
                 sb.append("<div class=\"table-wrap\"><table><thead><tr><th>").append(esc(c.t("Match"))).append("</th><th>").append(esc(c.t("Request"))).append("</th>");
@@ -987,7 +1192,7 @@ public final class Pages {
             sb.append("<div id=\"stats-overview\" data-load=\"").append(c.path()).append("/a/").append(id).append("/stats/overview\"><p class=\"empty\">").append(esc(c.t("Reading the packets again. A large capture can take a few minutes the first time."))).append("</p></div>");
             sb.append("<div id=\"stats-services\" data-load=\"").append(c.path()).append("/a/").append(id).append("/stats/services\"></div>");
             sb.append("<section class=\"panel\"><h2>").append(esc(c.t("IO graph"))).append("</h2><form class=\"inline\" method=\"get\" action=\"").append(c.path()).append("/a/").append(id).append("\"><input type=\"hidden\" name=\"tab\" value=\"stats\"><label class=\"wide\">")
-              .append(esc(c.t("Wireshark display filter"))).append(" <input name=\"filter\" spellcheck=\"false\" value=\"").append(esc(flt)).append("\" placeholder=\"tcp.analysis.retransmission\"></label><button>").append(esc(c.t("Draw"))).append("</button></form>")
+              .append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "filter", flt)).append("</label><button>").append(esc(c.t("Draw"))).append("</button></form>")
               .append("<div class=\"chart tall\" data-chart=\"io\" data-src=\"").append(c.path()).append("/api/a/").append(id).append("/io?filter=").append(java.net.URLEncoder.encode(flt, java.nio.charset.StandardCharsets.UTF_8)).append("\" data-name=\"io-graph\"></div></section>");
         } else sb.append("<p class=\"empty\">").append(esc(c.t("The original capture was not kept, so packets cannot be read again."))).append("</p>");
         sb.append("<section class=\"panel flush\"><h2>").append(esc(c.t("HTTP load distribution"))).append("</h2>");
@@ -1003,7 +1208,7 @@ public final class Pages {
         sb.append("</section>").append(sequencesPanel(c, seqs));
         if (kept) {
             sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Flow graph"))).append("</h2><p class=\"muted\">").append(esc(c.t("Packets between hosts on a time axis, as in Wireshark's Flow Graph."))).append("</p><form method=\"get\" action=\"")
-              .append(c.path()).append("/a/").append(id).append("/flow\" class=\"inline\"><label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" <input name=\"filter\" spellcheck=\"false\" placeholder=\"dns or icmp\"></label><button>")
+              .append(c.path()).append("/a/").append(id).append("/flow\" class=\"inline\"><label class=\"wide\">").append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "filter", "")).append("</label><button>")
               .append(esc(c.t("Show flow graph"))).append("</button></form></section><section class=\"panel\"><h2>").append(esc(c.t("Export objects"))).append("</h2><p class=\"muted\">")
               .append(esc(c.t("Files carried over HTTP, SMB, TFTP, FTP, e-mail or DICOM, as Wireshark's Export Objects finds them."))).append("</p><a class=\"button\" href=\"").append(c.path()).append("/a/").append(id).append("/objects\">")
               .append(esc(c.t("Find files in this capture"))).append("</a></section>");
@@ -1113,7 +1318,7 @@ public final class Pages {
         StringBuilder sb = new StringBuilder(crumbs(c, new String[][] {{c.t("Captures"), c.path() + "/"}, {(String) meta.get("filename"), c.path() + "/a/" + id}, {c.t("Statistics"), c.path() + "/a/" + id + "?tab=stats"}, {c.t("Flow graph"), null}}));
         sb.append("<header class=\"hero\"><div class=\"hero-head\"><div><h1>").append(esc(c.t("Flow graph"))).append("</h1><p class=\"muted\">")
           .append(esc(stream != null ? c.t("Connection {n}", "n", stream) : f.get("filter") != null ? f.get("filter") : c.t("All packets"))).append("</p></div></div></header><section class=\"panel\"><form method=\"get\" class=\"inline\"><label class=\"wide\">")
-          .append(esc(c.t("Wireshark display filter"))).append(" <input name=\"filter\" value=\"").append(esc(flt)).append("\" spellcheck=\"false\" placeholder=\"dns or icmp\"></label><button>").append(esc(c.t("Show flow graph"))).append("</button></form>");
+          .append(esc(c.t("Wireshark display filter"))).append(" ").append(DisplayFilters.select(c, "filter", flt)).append("</label><button>").append(esc(c.t("Show flow graph"))).append("</button></form>");
         if (((List<?>) f.get("rows")).isEmpty()) sb.append("<p class=\"empty\">").append(esc(c.t("No packets match."))).append("</p>"); else sb.append(flowSvg(c, f));
         return sb.append("</section>").toString();
     }
@@ -1241,10 +1446,140 @@ public final class Pages {
                 + "</td><td class=\"num\">" + Fmt.seconds(Analysis.dn(s.get("p95"))) + "</td><td class=\"num\">" + Fmt.seconds(Analysis.dn(s.get("max"))) + "</td>";
     }
 
-    public static String passwordPage(Ctx c, String error) {
-        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>" + esc(c.t("Change the password")) + "</h1><p class=\"muted\">" + esc(c.t("This is the password everyone with the login shares.")) + "</p></div></header>");
+    /** Admins add users, put them in a group, give them a role, set a new password and delete them. */
+    public static String usersPage(Ctx c, List<Map<String, Object>> users, List<Map<String, Object>> groupRows, String message, String error) {
+        List<String> groups = new ArrayList<>();
+        for (Map<String, Object> g : groupRows) groups.add(String.valueOf(g.get("name")));
+        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>").append(esc(c.t("Users"))).append("</h1><p class=\"muted\">")
+            .append(esc(c.t("Each user sees only the captures uploaded in their group. Admins see every group. Viewers open and export; analysts also upload, delete and write notes; admins also manage users, preferences and tokens.")))
+            .append("</p></div></header>");
         if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
-        sb.append("<section class=\"panel\"><form method=\"post\" action=\"").append(c.path()).append("/password\"><input type=\"hidden\" name=\"csrf_token\" value=\"").append(c.csrf()).append("\"><div class=\"fields\"><label>")
+        if (message != null) sb.append("<p class=\"ok\" role=\"status\">").append(esc(message)).append("</p>");
+        String csrf = csrf(c);
+        java.util.function.BiFunction<String, String, String> groupSelect = (cur, form) -> {
+            StringBuilder o = new StringBuilder("<select name=\"group\" required").append(form == null ? "" : " form=\"" + form + "\"").append(" aria-label=\"").append(esc(c.t("Group"))).append("\">");
+            if (cur == null || !groups.contains(cur)) o.append("<option value=\"\" selected disabled>").append(esc(c.t("Choose a group"))).append("</option>");
+            for (String g : groups) o.append("<option value=\"").append(esc(g)).append("\"").append(g.equals(cur) ? " selected" : "").append(">").append(esc(g)).append("</option>");
+            return o.append("</select>").toString();
+        };
+        // groups first: a user needs one
+        sb.append("<section class=\"panel flush\"><h2 class=\"pad\">").append(esc(c.t("Groups"))).append("</h2>")
+          .append("<form method=\"post\" action=\"").append(c.path()).append("/users/groups\" class=\"inline pad\">").append(csrf)
+          .append("<label>").append(esc(c.t("Group name"))).append(" <input name=\"group_name\" required pattern=\"[a-z0-9][a-z0-9._-]{1,39}\" maxlength=\"40\" placeholder=\"network-team\"></label>")
+          .append("<label class=\"grow\">").append(esc(c.t("Description"))).append(" <input name=\"description\" maxlength=\"120\"></label>")
+          .append("<button class=\"primary\">").append(esc(c.t("Add group"))).append("</button></form>");
+        if (groupRows.isEmpty()) sb.append("<p class=\"empty\">").append(esc(c.t("No groups yet. Add one before adding users."))).append("</p>");
+        else {
+            sb.append("<div class=\"table-wrap\"><table class=\"users-table\"><thead><tr><th>").append(esc(c.t("Group"))).append("</th><th>").append(esc(c.t("Description"))).append("</th><th></th><th class=\"num\">")
+              .append(esc(c.t("Users"))).append("</th><th></th></tr></thead><tbody>");
+            for (Map<String, Object> g : groupRows) {
+                String gn = String.valueOf(g.get("name")), gf = "g-" + gn.replaceAll("[^a-z0-9]", "_"), ga = c.path() + "/users/groups/" + gn;
+                int members = ((Number) g.get("users")).intValue();
+                sb.append("<tr><td><b>").append(esc(gn)).append("</b><form id=\"").append(gf).append("\" method=\"post\" action=\"").append(ga).append("/update\">").append(csrf).append("</form></td>")
+                  .append("<td><input form=\"").append(gf).append("\" name=\"description\" maxlength=\"120\" aria-label=\"").append(esc(c.t("Description"))).append("\" value=\"").append(esc(g.get("description"))).append("\"></td>")
+                  .append("<td><button form=\"").append(gf).append("\">").append(esc(c.t("Save"))).append("</button></td><td class=\"num\">").append(members).append("</td><td>");
+                if (members == 0) sb.append("<form method=\"post\" action=\"").append(ga).append("/delete\">").append(csrf).append("<button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", gn))).append("\">").append(esc(c.t("Delete"))).append("</button></form>");
+                else sb.append("<span class=\"muted\" title=\"").append(esc(c.t("Move its users to another group first."))).append("\">").append(esc(c.t("In use"))).append("</span>");
+                sb.append("</td></tr>");
+            }
+            sb.append("</tbody></table></div>");
+        }
+        sb.append("</section>");
+        java.util.function.Function<String, String> roles = cur -> {
+            StringBuilder o = new StringBuilder("<select name=\"role\">");
+            for (Users.Role r : Users.Role.values()) o.append("<option value=\"").append(r.key()).append("\"").append(r.key().equals(cur) ? " selected" : "").append(">").append(esc(c.t(roleLabel(r)))).append("</option>");
+            return o.append("</select>").toString();
+        };
+        Map<String, Object> ls = Ldap.settings();
+        boolean ldapOn = Ldap.configured();
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Add a user"))).append("</h2><form method=\"post\" action=\"").append(c.path()).append("/users\">").append(csrf).append("<div class=\"fields\">")
+          .append("<label>").append(esc(c.t("Sign-in"))).append(" <select name=\"source\" data-source><option value=\"local\">").append(esc(c.t("Local password"))).append("</option>")
+          .append(ldapOn ? "<option value=\"ldap\">LDAP</option>" : "").append("</select></label>")
+          .append("<label>").append(esc(c.t("User name"))).append(" <input name=\"name\" required pattern=\"[a-z0-9][a-z0-9._-]{1,39}\" maxlength=\"40\" autocomplete=\"off\"></label>")
+          .append("<label>").append(esc(c.t("Full name"))).append(" <input name=\"full_name\" required maxlength=\"80\" autocomplete=\"off\"></label>")
+          .append("<label>").append(esc(c.t("Employee ID"))).append(" <input name=\"employee_id\" maxlength=\"30\" autocomplete=\"off\"></label>")          .append("<label>").append(esc(c.t("Group"))).append(" ").append(groupSelect.apply(null, null)).append("</label>")
+          .append("<label>").append(esc(c.t("Role"))).append(" ").append(roles.apply("viewer")).append("</label>")
+          .append("<label data-local>").append(esc(c.t("First password"))).append(" <input type=\"password\" name=\"password\" required minlength=\"").append(Passwords.MIN_LENGTH).append("\" autocomplete=\"new-password\"></label></div>")
+          .append("<p class=\"hint\">").append(esc(c.t("A local user must choose a new password at the first sign-in. An LDAP user signs in with the directory password; group and role still come from here."))).append("</p>")
+          .append("<button class=\"primary\">").append(esc(c.t("Add"))).append("</button></form></section>");
+        sb.append("<section class=\"panel flush\"><div class=\"table-wrap\"><table class=\"users-table\"><thead><tr>");
+        for (String h : new String[] {"User name", "Full name", "Employee ID", "Group", "Role", "", "New password", ""}) sb.append("<th>").append(h.isEmpty() ? "" : esc(c.t(h))).append("</th>");
+        sb.append("</tr></thead><tbody>");
+        sb.append("<tr><td><b>").append(esc(Settings.adminUser())).append("</b></td><td colspan=\"2\" class=\"muted\">").append(esc(c.t("Setup admin from the server settings. It cannot be changed or deleted here.")))
+          .append("</td><td>").append(esc(c.t("All groups"))).append("</td><td>").append(esc(c.t("Admin"))).append("</td><td colspan=\"3\"></td></tr>");
+        for (Map<String, Object> u : users) {
+            String n = String.valueOf(u.get("name"));
+            String act = c.path() + "/users/" + n, f = "u-" + n.replaceAll("[^a-z0-9]", "_"), fp = f + "-pw";
+            // each cell's input belongs to the row's form through the form attribute, so the fields sit in their own columns
+            sb.append("<tr><td><b>").append(esc(n)).append("</b> <span class=\"tag\">").append("ldap".equals(u.get("source")) ? "LDAP" : esc(c.t("Local"))).append("</span>")
+              .append(Boolean.TRUE.equals(u.get("must_change")) ? " <span class=\"tag warn-tag\">" + esc(c.t("Must change password")) + "</span>" : "").append("<form id=\"").append(f).append("\" method=\"post\" action=\"").append(act).append("/update\">").append(csrf).append("</form>")
+              .append("<form id=\"").append(fp).append("\" method=\"post\" action=\"").append(act).append("/password\">").append(csrf).append("</form></td>")
+              .append("<td><input form=\"").append(f).append("\" name=\"full_name\" required maxlength=\"80\" aria-label=\"").append(esc(c.t("Full name"))).append("\" value=\"").append(esc(u.get("full_name"))).append("\"></td>")
+              .append("<td><input form=\"").append(f).append("\" name=\"employee_id\" maxlength=\"30\" aria-label=\"").append(esc(c.t("Employee ID"))).append("\" value=\"").append(esc(u.get("employee_id"))).append("\"></td>")
+              .append("<td>").append(groupSelect.apply(String.valueOf(u.get("group")), f)).append("</td>")
+              .append("<td>").append(roles.apply(String.valueOf(u.get("role"))).replace("<select ", "<select form=\"" + f + "\" aria-label=\"" + esc(c.t("Role")) + "\" ")).append("</td>")
+              .append("<td><button form=\"").append(f).append("\">").append(esc(c.t("Save"))).append("</button></td>")
+              .append("ldap".equals(u.get("source")) ? "<td class=\"muted\">" + esc(c.t("In the directory")) + "</td>" : "<td class=\"pw\"><input form=\"" + fp).append("\" type=\"password\" name=\"password\" required minlength=\"").append(Passwords.MIN_LENGTH).append("\" autocomplete=\"new-password\" aria-label=\"").append(esc(c.t("New password"))).append("\">")
+              .append("<button form=\"").append(fp).append("\">").append(esc(c.t("Set"))).append("</button></td>")
+              .append("<td><form method=\"post\" action=\"").append(act).append("/delete\">").append(csrf).append("<button class=\"link danger\" aria-label=\"").append(esc(c.t("Delete {name}", "name", n))).append("\">")
+              .append(esc(c.t("Delete"))).append("</button></form></td></tr>");
+        }
+        sb.append("</tbody></table></div></section>");
+        sb.append("<section class=\"panel\"><h2>LDAP</h2><p class=\"muted\">").append(esc(c.t("Users marked LDAP sign in with their directory password. The service account only finds them; it needs read access.")))
+          .append("</p><form method=\"post\" action=\"").append(c.path()).append("/users/ldap\">").append(csrf).append("<div class=\"fields\">")
+          .append("<label class=\"wide\">").append(esc(c.t("Server address"))).append(" <input name=\"url\" placeholder=\"ldaps://dc.example.com:636\" value=\"").append(esc(ls.get("url"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("Service account DN"))).append(" <input name=\"bind_dn\" placeholder=\"cn=svc-pcap,ou=service,dc=example,dc=com\" value=\"").append(esc(ls.get("bind_dn"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("Service account password"))).append(" <input type=\"password\" name=\"bind_password\" autocomplete=\"new-password\" placeholder=\"")
+          .append(esc(String.valueOf(ls.get("bind_password")).isEmpty() ? "" : c.t("saved; leave empty to keep"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("Base DN"))).append(" <input name=\"base_dn\" placeholder=\"dc=example,dc=com\" value=\"").append(esc(ls.get("base_dn"))).append("\"></label>")
+          .append("<label>").append(esc(c.t("User filter"))).append(" <input name=\"user_filter\" placeholder=\"(sAMAccountName={0})\" value=\"").append(esc(ls.get("user_filter"))).append("\"></label></div>")
+          .append("<button class=\"primary\">").append(esc(c.t("Save"))).append("</button></form>");
+        if (ldapOn) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/users/ldap/test\" class=\"inline\">").append(csrf)
+          .append("<label>").append(esc(c.t("Find a user (optional)"))).append(" <input name=\"test_user\" autocomplete=\"off\"></label><button>").append(esc(c.t("Test the connection"))).append("</button></form>");
+        sb.append("</section>");
+        return sb.toString();
+    }
+
+    static String roleLabel(Users.Role r) { return switch (r) { case VIEWER -> "Viewer"; case ANALYST -> "Analyst"; case ADMIN -> "Admin"; }; }
+
+    /** The admin's view of the encryption: the algorithms, the master key (shown on request), changing it, and notices about changed files. */
+    public static String securityPage(Ctx c, String message, String error) {
+        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>").append(esc(c.t("Encryption"))).append("</h1><p class=\"muted\">")
+            .append(esc(c.t("Captures, results, users, settings and the activity log are kept encrypted in the data folder. A copy of the folder cannot be opened without the master key and the setup admin's password.")))
+            .append("</p></div></header>");
+        if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
+        if (message != null) sb.append("<p class=\"ok\" role=\"status\">").append(esc(message)).append("</p>");
+        String csrf = csrf(c);
+        List<Map<String, Object>> alerts = Vault.alerts();
+        if (!alerts.isEmpty()) {
+            sb.append("<section class=\"panel flush alert-panel\"><h2 class=\"pad\">").append(esc(c.t("Files changed by hand"))).append("</h2><div class=\"table-wrap\"><table><thead><tr><th>")
+              .append(esc(c.t("Time"))).append("</th><th>").append(esc(c.t("File"))).append("</th><th>").append(esc(c.t("Problem"))).append("</th></tr></thead><tbody>");
+            for (Map<String, Object> a : alerts) sb.append("<tr><td>").append(Fmt.when(Analysis.d(a.get("time")))).append("</td><td><code>").append(esc(a.get("file"))).append("</code></td><td>").append(esc(a.get("reason"))).append("</td></tr>");
+            sb.append("</tbody></table></div><form method=\"post\" action=\"").append(c.path()).append("/security/alerts/clear\" class=\"pad\">").append(csrf).append("<button>").append(esc(c.t("Mark as seen"))).append("</button></form></section>");
+        }
+        boolean set = Vault.isSetUp();
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("Master key"))).append("</h2>");
+        if (!set) sb.append("<p class=\"warn\">").append(esc(c.t("Set the master key to finish the setup. Every file in the data folder is then encrypted, and users can sign in."))).append("</p>");
+        else if (Vault.masterKey() != null)
+            sb.append("<p>").append(esc(c.t("Current master key"))).append(": <code class=\"secret\" data-secret=\"").append(esc(Vault.masterKey())).append("\">••••••••••••••••</code> <button type=\"button\" class=\"link\" data-reveal>")
+              .append(esc(c.t("Show"))).append("</button></p>");
+        sb.append("<form method=\"post\" action=\"").append(c.path()).append("/security\">").append(csrf).append("<div class=\"fields\">")
+          .append("<label>").append(esc(c.t(set ? "New master key" : "Master key"))).append(" <input type=\"password\" name=\"master\" required minlength=\"16\" maxlength=\"16\" autocomplete=\"off\" spellcheck=\"false\"></label>")
+          .append("<label>").append(esc(c.t("Again"))).append(" <input type=\"password\" name=\"again\" required minlength=\"16\" maxlength=\"16\" autocomplete=\"off\" spellcheck=\"false\"></label></div>")
+          .append("<p class=\"hint\">").append(esc(c.t("Exactly 16 characters, with at least one sign that is not a letter or digit, such as ! # % or *. Keep a copy somewhere safe."))).append("</p>")
+          .append("<button class=\"primary\">").append(esc(c.t(set ? "Change the master key" : "Set the master key and encrypt"))).append("</button></form></section>");
+        sb.append("<section class=\"panel\"><h2>").append(esc(c.t("How the data is encrypted"))).append("</h2><ul class=\"plain\">");
+        for (String line : Vault.ALGORITHM.split("\\. ")) sb.append("<li>").append(esc(line.endsWith(".") ? line : line + ".")).append("</li>");
+        sb.append("</ul><p class=\"hint\">").append(esc(c.t("After a restart nothing can be read until the setup admin signs in. Until then other users see a waiting page."))).append("</p></section>");
+        return sb.toString();
+    }
+
+    public static String passwordPage(Ctx c, String error) {
+        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>" + esc(c.t("Change the password")) + "</h1><p class=\"muted\">" + esc(Users.current() != null && !Users.current().setupAdmin() ? c.t("Your own password. Others are not affected.") : c.t("This is the password everyone with the login shares.")) + "</p></div></header>");
+        if (Passwords.mustChange() && Users.current() != null && Users.current().setupAdmin())
+            sb.append("<p class=\"warn\" role=\"alert\">").append(esc(c.t("This is the first sign-in with admin / admin. Choose a new password to continue."))).append("</p>");
+        if (error != null) sb.append("<p class=\"error\" role=\"alert\">").append(esc(error)).append("</p>");
+        sb.append("<section class=\"panel\"><form method=\"post\" action=\"").append(c.path()).append("/password\">").append(csrf(c)).append("<div class=\"fields\"><label>")
           .append(esc(c.t("Current password"))).append(" <input type=\"password\" name=\"current\" required autocomplete=\"current-password\"></label><label>").append(esc(c.t("New password")))
           .append(" <input type=\"password\" name=\"new\" required minlength=\"").append(Passwords.MIN_LENGTH).append("\" autocomplete=\"new-password\"></label><label>").append(esc(c.t("New password again")))
           .append(" <input type=\"password\" name=\"again\" required autocomplete=\"new-password\"></label></div><button class=\"primary\">").append(esc(c.t("Change the password"))).append("</button></form></section>");

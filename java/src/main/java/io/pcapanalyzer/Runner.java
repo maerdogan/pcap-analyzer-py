@@ -1,7 +1,6 @@
 package io.pcapanalyzer;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 
@@ -22,9 +21,9 @@ public final class Runner {
         meta.put("packets", summary.get("packets")); meta.put("capture_start", summary.get("start")); meta.put("capture_end", summary.get("end"));
         meta.put("connections", summary.get("connections")); meta.put("transactions", summary.get("requests")); meta.put("filter", filter);
         Object det = result.remove("_details");
-        Files.writeString(dir.resolve("details.json"), Json.write(det == null ? new LinkedHashMap<>() : det), StandardCharsets.UTF_8);
-        Files.writeString(dir.resolve("result.json"), Json.write(result), StandardCharsets.UTF_8);
-        Files.writeString(dir.resolve("meta.json"), Json.write(meta), StandardCharsets.UTF_8);
+        Vault.writeText(dir.resolve("details.json"), Json.write(det == null ? new LinkedHashMap<>() : det));
+        Vault.writeText(dir.resolve("result.json"), Json.write(result));
+        Vault.writeText(dir.resolve("meta.json"), Json.write(meta));
         removeOwn(dir, keylog); // keys are removed after the analysis, but only the copies kept in the analysis folder
         if (!Settings.keepCapture()) Files.deleteIfExists(cap);
         Records.audit(client.isEmpty() ? "upload" : "upload", client, id + " " + name);

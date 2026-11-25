@@ -287,3 +287,66 @@
     setupSideMenu();
   });
 })();
+
+
+// One URL over time on the inspect page: phases stacked per bucket, the 95th percentile as a line and the request count as bars below.
+// Selecting a row of the URL table switches the chart and the table beside it.
+(() => {
+  const view = document.getElementById("url-view");
+  const raw = view && view.querySelector("[data-url-data]");
+  if (!view || !raw || typeof echarts === "undefined") return;
+  const INK = "#121d33", MUTED = "#475570", LINE = "#d0d9e5", BRAND = "#1857c2", BAD = "#c41d2a";
+  const all = JSON.parse(raw.textContent);
+  const el = view.querySelector("[data-url-chart]");
+  const chart = echarts.init(el, null, { renderer: "canvas" });
+  const css = getComputedStyle(document.documentElement);
+  const color = (p) => css.getPropertyValue("--" + p).trim() || "#7b93ab";
+  const fmt = (v) => v == null ? "–" : v >= 1 ? v.toFixed(2) + " s" : (v * 1000).toFixed(v < 0.01 ? 2 : 1) + " ms";
+  const when = (v) => new Date(v * 1000).toLocaleString();
+  const draw = (i) => {
+    const u = all.urls[i], pts = u.series || [];
+    const used = Object.keys(all.labels).filter((p) => pts.some((d) => d.phases && d.phases[p] > 0));
+    const x = (d) => d.t * 1000;
+    chart.setOption({
+      animation: false, textStyle: { fontFamily: "Archivo, system-ui, sans-serif" },
+      grid: [{ left: 64, right: 16, top: 36, height: "58%" }, { left: 64, right: 16, top: "76%", bottom: 46 }],
+      legend: { top: 0, type: "scroll", icon: "roundRect", itemWidth: 12, itemHeight: 8 },
+      tooltip: { trigger: "axis", axisPointer: { type: "cross", link: [{ xAxisIndex: "all" }] }, valueFormatter: (v) => typeof v === "number" && v % 1 === 0 && v > 1 ? v : fmt(v) },
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      dataZoom: [{ type: "inside", xAxisIndex: [0, 1] }, { type: "slider", xAxisIndex: [0, 1], height: 16, bottom: 6 }],
+      xAxis: [{ type: "time", gridIndex: 0, axisLabel: { show: false }, axisLine: { lineStyle: { color: LINE } } },
+        { type: "time", gridIndex: 1, axisLabel: { color: MUTED }, axisLine: { lineStyle: { color: LINE } } }],
+      yAxis: [{ type: "value", gridIndex: 0, axisLabel: { color: MUTED, formatter: fmt }, splitLine: { lineStyle: { color: LINE } } },
+        { type: "value", gridIndex: 1, minInterval: 1, axisLabel: { color: MUTED }, splitLine: { show: false }, name: all.names.requests, nameTextStyle: { color: MUTED, align: "left" } }],
+      series: [
+        ...used.map((p) => ({ name: all.labels[p], type: "line", stack: "phases", areaStyle: { opacity: 0.85 }, symbol: "none", lineStyle: { width: 0 },
+          itemStyle: { color: color(p) }, data: pts.map((d) => [x(d), d.phases[p] || 0]) })),
+        { name: all.names.p95, type: "line", symbol: "none", lineStyle: { color: INK, width: 1.5, type: "dashed" }, itemStyle: { color: INK }, data: pts.map((d) => [x(d), d.p95]) },
+        { name: all.names.requests, type: "bar", xAxisIndex: 1, yAxisIndex: 1, itemStyle: { color: BRAND }, data: pts.map((d) => [x(d), d.n]) },
+        { name: all.names.failed, type: "bar", xAxisIndex: 1, yAxisIndex: 1, barGap: "-100%", itemStyle: { color: BAD }, data: pts.map((d) => [x(d), d.failed]) },
+      ],
+    }, true);
+    view.querySelector("[data-url-title]").textContent = u.title;
+    view.querySelectorAll("[data-url-table]").forEach((t) => { t.hidden = t.dataset.urlTable !== String(i); });
+    document.querySelectorAll("tr[data-url-pick]").forEach((r) => r.classList.toggle("picked", r.dataset.urlPick === String(i)));
+  };
+  draw(0);
+  document.querySelectorAll("tr[data-url-pick]").forEach((r) => {
+    const pick = () => { draw(Number(r.dataset.urlPick)); view.scrollIntoView({ behavior: "smooth", block: "nearest" }); };
+    r.addEventListener("click", pick);
+    r.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+  });
+  addEventListener("resize", () => chart.resize());
+})();
+
+// Encryption page: show the master key on request. Users page: an LDAP user needs no first password.
+document.querySelectorAll("[data-reveal]").forEach((b) => b.addEventListener("click", () => {
+  const code = b.previousElementSibling, shown = code.textContent === code.dataset.secret;
+  code.textContent = shown ? "\u2022".repeat(16) : code.dataset.secret;
+  b.textContent = shown ? b.dataset.show || b.textContent : (b.dataset.show = b.textContent, "\u2715");
+}));
+document.querySelectorAll("[data-source]").forEach((s) => {
+  const form = s.form, pw = form.querySelector("[data-local]");
+  const sync = () => { const local = s.value === "local"; pw.hidden = !local; pw.querySelector("input").required = local; };
+  s.addEventListener("change", sync); sync();
+});

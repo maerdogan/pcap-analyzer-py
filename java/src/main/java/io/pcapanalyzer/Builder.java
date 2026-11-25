@@ -14,7 +14,7 @@ public final class Builder {
     }
 
     static final class Req {
-        int frame, startFrame; String method, uri, host, version, requestId, headers, body, xff; Long contentLength;
+        int frame, startFrame; String method, uri, host, version, requestId, headers, body, xff, clientIp, clientIpHeader, userAgent; Long contentLength;
     }
 
     static final class H2 {
@@ -26,7 +26,7 @@ public final class Builder {
     }
 
     static final class Resp {
-        int frame, startFrame, status, headLen; String phrase, contentType, headers, body, encoding, transfer, serverTiming, version; Long contentLength; boolean websocket;
+        int frame, startFrame, status, headLen; String phrase, contentType, headers, body, encoding, transfer, serverTiming, version; Long contentLength; Double upstreamTime; boolean websocket;
     }
 
     static final class Stream {
@@ -41,7 +41,11 @@ public final class Builder {
         Map<Integer, H2> h2 = new LinkedHashMap<>();
         boolean tlsSeen, tlsHello, tlsServerHello, tlsCertificate;
         Pkt tlsStart, tlsEnd, tlsCcs;
-        String sni, tlsVersion, tlsCipher, tlsAlpn, tlsAlert, tlsCertExpires;
+        String sni, tlsVersion, tlsCipher, tlsAlpn, tlsAlert, tlsCertExpires, tlsClientName;
+        boolean tlsCertRequested;
+        String proxyVersion, proxyClient, proxyServer;
+        int tlsServerChain;
+        Integer tlsClientCerts;
         List<Integer> mss = new ArrayList<>();
         Integer wscale;
         boolean sack;
@@ -57,6 +61,14 @@ public final class Builder {
         boolean closed;
         double lastT;
         boolean offload;
+        Long nsPcb, nsLinkedPcb; Integer nsRtt;
+        /** HTTP/2 flow control: what each side may still send, on the connection and on each stream, as the peer allowed it. */
+        Map<String, Long> h2ConnWindow = new HashMap<>();
+        Map<String, Long> h2InitialWindow = new HashMap<>(); // set by the peer's SETTINGS for the streams it receives
+        Map<String, Long> h2StreamWindow = new HashMap<>();  // key: sender + "/" + stream id
+        Map<String, Double> h2Blocked = new HashMap<>();     // key: sender + "/" + stream id, or sender + "/0": when its window ran out
+        double h2Stall;
+        List<double[]> h2StallSpans = new ArrayList<>();   // start and end of each flow control wait
     }
 
     public final Map<Integer, Stream> streams = new TreeMap<>();
@@ -97,6 +109,9 @@ public final class Builder {
         return i < 0 ? v : v.substring(i + 1);
     }
 
+    /** The last IPv4 address of a side ("src" or "dst"), else the IPv6 one. */
+    private static String ip(Map<String, String> p, String side) { return Optional.ofNullable(last(p, "ip." + side)).orElse(last(p, "ipv6." + side)); }
+
     static Long toLong(String v) {
         if (v == null || v.isEmpty()) return null;
         try {
@@ -130,13 +145,17 @@ public final class Builder {
         tcp++;
         int sid = sidL.intValue();
         int frame = Integer.parseInt(p.get("frame.number"));
-        String srcIp = Optional.ofNullable(last(p, "ip.src")).orElse(last(p, "ipv6.src"));
-        String dstIp = Optional.ofNullable(last(p, "ip.dst")).orElse(last(p, "ipv6.dst"));
+        String srcIp = ip(p, "src"), dstIp = ip(p, "dst");
         String src = srcIp + ":" + p.get("tcp.srcport"), dst = dstIp + ":" + p.get("tcp.dstport");
         if (finishedSids.contains(sid)) return; // a packet after the connection was finished and freed
         Stream s = streams.computeIfAbsent(sid, k -> { Stream n = new Stream(); n.sid = sid; n.a = src; n.b = dst; return n; });
         int flags = Optional.ofNullable(toLong(p.get("tcp.flags"))).orElse(0L).intValue();
         long payload = Optional.ofNullable(toLong(p.get("tcp.len"))).orElse(0L);
+        // A NetScaler trace names the connection's PCB and the PCB of the other side of the proxy
+        if (s.nsPcb == null) { Long pcb = toLong(first(p, "nstrace.pdevno")); if (pcb != null && pcb != 0) s.nsPcb = pcb; }
+        if (s.nsLinkedPcb == null) { Long l = toLong(first(p, "nstrace.l_pdevno")); if (l != null && l != 0) s.nsLinkedPcb = l; }
+        Long nsRtt = toLong(Optional.ofNullable(first(p, "nstrace.tcpdbg.rtrtt")).orElse(first(p, "nstrace.rtt")));
+        if (nsRtt != null && nsRtt > 0) s.nsRtt = nsRtt.intValue();
         if (isCopy(p, s, t, src, flags, payload)) { copies++; s.noRtt.add(frame); return; }
         Pkt pk = new Pkt();
         pk.frame = frame; pk.t = t; pk.size = (int) size; pk.src = src; pk.payload = payload; pk.flags = flags;
@@ -175,6 +194,7 @@ public final class Builder {
         if (p.containsKey("tcp.analysis.zero_window")) { s.zeroWindows++; s.zeroList.add(pk); }
         Double rtt = toDouble(p.get("tcp.analysis.ack_rtt"));
         if (rtt != null && !pk.retrans && !s.noRtt.contains(Optional.ofNullable(toLong(p.get("tcp.analysis.acks_frame"))).map(Long::intValue).orElse(-1))) s.rttSamples.add(new Object[] {src, rtt});
+        proxy(p, s);
         tls(p, s, pk, src);
         http1(p, s, pk, src, dst);
         http2(p, s, pk, src, dst);
@@ -184,6 +204,47 @@ public final class Builder {
     static final java.util.regex.Pattern TRACEPARENT = java.util.regex.Pattern.compile("[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}");
 
     /** The ID that follows a request through proxies. tshark lists the lines of pipelined requests as one block, so the Nth request owns the Nth copy of a header. */
+    /** Headers a proxy writes the original client into, in the order they are tried. PCAP_ANALYZER_CLIENT_IP_HEADER sets them, comma separated. */
+    static final List<String> CLIENT_IP_HEADERS = List.of(Optional.ofNullable(System.getenv("PCAP_ANALYZER_CLIENT_IP_HEADER")).filter(v -> !v.isBlank())
+            .orElse("x-forwarded-for,x-real-ip,true-client-ip,x-client-ip,client-ip,forwarded").toLowerCase().replace(" ", "").split(","));
+
+    /** The original client in a header value: the first address of a list, and the for= part of a Forwarded header. */
+    static String clientAddress(String name, String value) {
+        if (value == null) return null;
+        String v = value.split(",")[0].strip();
+        if (name.equals("forwarded")) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?i)(?:^|;)\\s*for=\"?([^\";]+)").matcher(v);
+            v = m.find() ? m.group(1) : "";
+        }
+        return v.isEmpty() || v.equalsIgnoreCase("unknown") ? null : v;
+    }
+
+    /** Sets the request's original client from the first configured header that has one. */
+    static void clientIp(Req r, java.util.function.Function<String, String> header) {
+        for (String name : CLIENT_IP_HEADERS) {
+            String ip = clientAddress(name, header.apply(name));
+            if (ip != null) { r.clientIp = ip; r.clientIpHeader = name; return; }
+        }
+    }
+
+    /** Paths and user agents of load balancer and Kubernetes health checks. PCAP_ANALYZER_HEALTH_PATHS adds paths, comma separated. */
+    static final List<String> HEALTH_PATHS = new ArrayList<>(List.of("/health", "/healthz", "/healthcheck", "/health-check", "/ready", "/readyz", "/livez", "/ping", "/status", "/actuator/health", "/q/health"));
+    static final java.util.regex.Pattern HEALTH_AGENT = java.util.regex.Pattern.compile("(?i)monitor|kube-probe|health.?check|NetScaler|ELB-HealthChecker|GoogleHC|Consul Health|Envoy/HC");
+    static {
+        String more = System.getenv("PCAP_ANALYZER_HEALTH_PATHS");
+        if (more != null) for (String p : more.split(",")) if (!p.isBlank()) HEALTH_PATHS.add(p.strip().toLowerCase());
+    }
+
+    static boolean healthCheck(String uri, String userAgent) {
+        if (userAgent != null && HEALTH_AGENT.matcher(userAgent).find()) return true;
+        if (uri == null) return false;
+        String path = uri.split("\\?")[0].toLowerCase();
+        if (path.length() > 1 && path.endsWith("/")) path = path.substring(0, path.length() - 1);
+        // A service prefix is fine for health and readiness paths, as in /orders/healthz; /ping and /status only on their own
+        for (String h : HEALTH_PATHS) if (path.equals(h) || path.endsWith(h) && h.matches(".*(health|ready|live).*")) return true;
+        return false;
+    }
+
     static String requestId(String[] lines, int index) {
         String named = header(lines, REQUEST_ID_HEADER, index);
         if (named != null && !named.isBlank()) return named;
@@ -274,7 +335,7 @@ public final class Builder {
 
     private void issue(Map<String, String> p, double t, String kind, String detail) {
         if (packetIssues.size() >= MAX_PACKET_ISSUES) return;
-        String src = Optional.ofNullable(last(p, "ip.src")).orElse(last(p, "ipv6.src")), dst = Optional.ofNullable(last(p, "ip.dst")).orElse(last(p, "ipv6.dst"));
+        String src = ip(p, "src"), dst = ip(p, "dst");
         packetIssues.add(new Object[] {Integer.parseInt(p.get("frame.number")), t, kind, detail, src, dst});
     }
 
@@ -300,9 +361,68 @@ public final class Builder {
         }
     }
 
+    /** HTTP/2 error codes, RFC 9113 section 7. */
+    static final String[] H2_ERRORS = {"NO_ERROR", "PROTOCOL_ERROR", "INTERNAL_ERROR", "FLOW_CONTROL_ERROR", "SETTINGS_TIMEOUT", "STREAM_CLOSED",
+            "FRAME_SIZE_ERROR", "REFUSED_STREAM", "CANCEL", "COMPRESSION_ERROR", "CONNECT_ERROR", "ENHANCE_YOUR_CALM", "INADEQUATE_SECURITY", "HTTP_1_1_REQUIRED"};
+    static final long H2_DEFAULT_WINDOW = 65_535;
+    static final long H2_LOW_WINDOW = 1_024; // less than this left, a sender waits for the peer's WINDOW_UPDATE
+    static final double H2_STALL_MIN_S = 0.001;
+    static final int SETTINGS_INITIAL_WINDOW_SIZE = 4;
+
+    static String h2Error(Long code) {
+        if (code == null) return null;
+        return code >= 0 && code < H2_ERRORS.length ? H2_ERRORS[code.intValue()] : "0x" + Long.toHexString(code);
+    }
+
+    /** Control frames: resets and shutdowns become issues, and flow control windows are followed to find waits on WINDOW_UPDATE. */
+    private void http2Control(Map<String, String> p, Stream s, Pkt pk, String src, String dst, String[] types, String[] ids, String[] lengths) {
+        String[] rst = many(p, "http2.rst_stream.error"), goaway = many(p, "http2.goaway.error"), inc = many(p, "http2.window_update.window_size_increment");
+        String[] setIds = many(p, "http2.settings.id"), setWindows = many(p, "http2.settings.initial_window_size");
+        int ri = 0, gi = 0, wi = 0;
+        for (int k = 0, w = 0; k < setIds.length; k++) {
+            Long id = toLong(setIds[k]);
+            if (id != null && id == SETTINGS_INITIAL_WINDOW_SIZE && w < setWindows.length) {
+                Long v = toLong(setWindows[w++]);
+                if (v != null) s.h2InitialWindow.put(dst, v); // what the sender of SETTINGS lets the other side send per stream
+            }
+        }
+        for (int i = 0; i < types.length; i++) {
+            String ty = types[i];
+            Long sid = i < ids.length ? toLong(ids[i]) : Long.valueOf(0);
+            long id = sid == null ? 0 : sid;
+            if (ty.equals("3") && ri < rst.length) {
+                issue(p, pk.t, "h2_reset", "stream " + id + ": " + h2Error(toLong(rst[ri++])));
+            } else if (ty.equals("7") && gi < goaway.length) {
+                issue(p, pk.t, "h2_goaway", h2Error(toLong(goaway[gi++])));
+            } else if (ty.equals("8") && wi < inc.length) {
+                Long add = toLong(inc[wi++]);
+                if (add == null) continue;
+                // The peer of this frame's sender may send more now.
+                String key = dst + "/" + id;
+                if (id == 0) s.h2ConnWindow.merge(dst, H2_DEFAULT_WINDOW + add, (a, b) -> a + add);
+                else s.h2StreamWindow.merge(key, s.h2InitialWindow.getOrDefault(dst, H2_DEFAULT_WINDOW) + add, (a, b) -> a + add);
+                Double since = s.h2Blocked.remove(key);
+                if (since != null && pk.t - since >= H2_STALL_MIN_S) {
+                    s.h2Stall += pk.t - since;
+                    s.h2StallSpans.add(new double[] {since, pk.t});
+                    issue(p, pk.t, "h2_flow_stall", (id == 0 ? "connection" : "stream " + id) + ": " + Math.round((pk.t - since) * 1000) + " ms");
+                }
+            } else if (ty.equals("0") && id != 0) {
+                Long ln = i < lengths.length ? toLong(lengths[i]) : null;
+                if (ln == null || ln == 0) continue;
+                long conn = s.h2ConnWindow.merge(src, H2_DEFAULT_WINDOW - ln, (a, b) -> a - ln);
+                String key = src + "/" + id;
+                long stream = s.h2StreamWindow.merge(key, s.h2InitialWindow.getOrDefault(src, H2_DEFAULT_WINDOW) - ln, (a, b) -> a - ln);
+                if (conn < H2_LOW_WINDOW) s.h2Blocked.putIfAbsent(src + "/0", pk.t);
+                if (stream < H2_LOW_WINDOW) s.h2Blocked.putIfAbsent(key, pk.t);
+            }
+        }
+    }
+
     private void http2(Map<String, String> p, Stream s, Pkt pk, String src, String dst) {
         String[] types = many(p, "http2.type");
         if (types.length == 0) return;
+        http2Control(p, s, pk, src, dst, types, many(p, "http2.streamid"), many(p, "http2.length"));
         String[] ids = many(p, "http2.streamid"), flags = many(p, "http2.flags"), lengths = many(p, "http2.length"), counts = many(p, "http2.header.count");
         String[] names = many(p, "http2.header.name"), values = many(p, "http2.header.value");
         int hpos = 0, cpos = 0;
@@ -345,6 +465,18 @@ public final class Builder {
             Map.entry(70, "protocol_version"), Map.entry(71, "insufficient_security"), Map.entry(80, "internal_error"), Map.entry(90, "user_canceled"),
             Map.entry(109, "missing_extension"), Map.entry(112, "unrecognized_name"), Map.entry(116, "certificate_required"), Map.entry(120, "no_application_protocol"));
 
+    /** A PROXY protocol header, as a NetScaler or a load balancer puts in front of the data, names the client the proxy took the connection from. */
+    private void proxy(Map<String, String> p, Stream s) {
+        String version = first(p, "proxy.version");
+        if (version == null && p.containsKey("proxy.v1.magic")) version = "1";
+        if (version == null || s.proxyVersion != null) return;
+        s.proxyVersion = "v" + version;
+        String src = Optional.ofNullable(first(p, "proxy.src.ipv4")).orElse(first(p, "proxy.src.ipv6")), dst = Optional.ofNullable(first(p, "proxy.dst.ipv4")).orElse(first(p, "proxy.dst.ipv6"));
+        String sport = first(p, "proxy.srcport"), dport = first(p, "proxy.dstport");
+        if (src != null) s.proxyClient = (src.contains(":") ? "[" + src + "]" : src) + (sport == null ? "" : ":" + sport);
+        if (dst != null) s.proxyServer = (dst.contains(":") ? "[" + dst + "]" : dst) + (dport == null ? "" : ":" + dport);
+    }
+
     private void tls(Map<String, String> p, Stream s, Pkt pk, String src) {
         String[] ctypes = many(p, "tls.record.content_type"), opaque = many(p, "tls.record.opaque_type");
         if (ctypes.length == 0 && opaque.length == 0) return;
@@ -370,8 +502,21 @@ public final class Builder {
         if (hs.contains(11L)) s.tlsCertificate = true;
         Long alert = toLong(first(p, "tls.alert_message.desc"));
         if (alert != null && alert != 0 && s.tlsAlert == null) s.tlsAlert = ALERTS.getOrDefault(alert.intValue(), String.valueOf(alert));
-        String[] times = many(p, "x509af.utcTime");
-        if (times.length >= 2 && s.tlsCertExpires == null) s.tlsCertExpires = times[1];
+        boolean fromClient = src.equals(s.client);
+        if (hs.contains(13L) && !fromClient) s.tlsCertRequested = true;
+        if (hs.contains(11L)) {
+            int certs = many(p, "tls.handshake.certificate_length").length;
+            String name = first(p, "x509ce.dNSName");
+            if (fromClient) {
+                s.tlsClientCerts = certs; s.tlsClientName = name;
+                if (s.tlsCertRequested && certs == 0) issue(p, pk.t, "tls_no_client_cert", s.sni != null ? s.sni : "stream " + s.sid);
+            } else if (s.tlsServerChain == 0) {
+                s.tlsServerChain = certs;
+                // notBefore and notAfter of each certificate in turn: the chain expires with its first certificate to expire
+                String[] times = many(p, "x509af.utcTime");
+                for (int i = 1; i < times.length; i += 2) if (s.tlsCertExpires == null || times[i].compareTo(s.tlsCertExpires) < 0) s.tlsCertExpires = times[i];
+            }
+        }
     }
 
     private void http1(Map<String, String> p, Stream s, Pkt pk, String src, String dst) {
@@ -397,6 +542,9 @@ public final class Builder {
                 String[] bodies = many(p, "http.file_data");
                 r.body = bodies.length > 0 ? Privacy.preview(bodies[0]) : null;
                 r.xff = first(p, "http.x_forwarded_for");
+                final String[] reqLines = many(p, "http.request.line"); final int idx = i;
+                clientIp(r, h -> header(reqLines, h, idx));
+                r.userAgent = header(reqLines, "user-agent", idx);
                 s.requests.add(r);
             }
             s.reqEnd = pk.seq + pk.payload;
@@ -430,6 +578,7 @@ public final class Builder {
                     java.util.regex.Matcher mm = java.util.regex.Pattern.compile("([0-9.]+)\\s*(ms|s)?").matcher(rt.strip());
                     return mm.matches() ? "app;dur=" + Double.parseDouble(mm.group(1)) * ("s".equals(mm.group(2)) ? 1000 : 1) : null;
                 });
+                r.upstreamTime = envoyUpstream(header(rlines, "x-envoy-upstream-service-time", 0));
                 String[] rb = many(p, "http.file_data");
                 r.body = rb.length > 0 ? Privacy.preview(rb[0]) : null;
                 s.responses.add(r);
@@ -518,8 +667,14 @@ public final class Builder {
         conn.put("tls_no_answer", s.tlsHello && !s.tlsServerHello);
         conn.put("tls_resumed", s.tlsServerHello && !s.tlsCertificate && !"TLS 1.3".equals(s.tlsVersion));
         conn.put("tls_cert_expires", s.tlsCertExpires);
+        conn.put("proxy_version", s.proxyVersion); conn.put("proxy_client", s.proxyClient); conn.put("proxy_server", s.proxyServer);
+        conn.put("tls_chain", s.tlsServerChain == 0 ? null : s.tlsServerChain);
+        conn.put("tls_client_cert_requested", s.tlsCertRequested);
+        conn.put("tls_client_certs", s.tlsClientCerts);
+        conn.put("tls_client_name", s.tlsClientName);
         conn.put("tls_seen", s.tlsSeen);
         conn.put("offload", s.offload);
+        conn.put("ns_pcb", s.nsPcb); conn.put("ns_linked_pcb", s.nsLinkedPcb); conn.put("ns_rtt_ms", s.nsRtt);
         conn.put("first_frame", firstP.frame);
         conn.put("start_time", firstP.t); conn.put("end_time", lastP.t); conn.put("duration", lastP.t - firstP.t);
         conn.put("packets", s.packets.size()); conn.put("bytes", (long) bytesSum);
@@ -601,12 +756,16 @@ public final class Builder {
             Pkt rFirst = st.resp == null ? null : st.respPk, rLast = st.sEnd != null ? st.sEnd : st.lastS != null ? st.lastS : rFirst;
             Req q = new Req();
             q.frame = q.startFrame = qFirst.frame; q.method = st.req.get(":method"); q.uri = st.req.get(":path"); q.host = st.req.get(":authority"); q.version = "HTTP/2";
+            final Map<String, String> h2req = st.req;
+q.userAgent = st.req.get("user-agent");
+                        clientIp(q, h -> { for (var kv : h2req.entrySet()) if (kv.getKey().equalsIgnoreCase(h)) return kv.getValue(); return null; });
             Resp r = null;
             if (st.resp != null) {
                 r = new Resp();
                 r.frame = r.startFrame = rFirst.frame;
                 Long code = toLong(st.resp.get(":status"));
                 r.status = code == null ? 0 : code.intValue();
+                r.upstreamTime = envoyUpstream(st.resp.get("x-envoy-upstream-service-time"));
                 r.contentType = st.resp.get("content-type");
             }
             q.headers = h2Headers(st.req);
@@ -660,6 +819,12 @@ public final class Builder {
         return total;
     }
 
+    /** x-envoy-upstream-service-time: the milliseconds an Envoy based gateway waited for its upstream, in seconds. */
+    static Double envoyUpstream(String v) {
+        if (v == null) return null;
+        try { double ms = Double.parseDouble(v.strip()); return ms >= 0 ? ms / 1000 : null; } catch (NumberFormatException e) { return null; }
+    }
+
     static Double serverReported(String st) {
         if (st == null) return null;
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("dur=([0-9.]+)").matcher(st);
@@ -688,8 +853,13 @@ public final class Builder {
             Double service = null;
             if (wait != null) { double svc = wait - network - queue; service = svc >= 0 ? svc : null; }
             if (queue != 0 && service == null) service = 0.0;
-            double moved = st[1] + st[2] + delayedResp;
+            double flow = 0;
+            if (t.get("resp_start") != null && t.get("resp_end") != null)
+                for (double[] w : s.h2StallSpans) flow += Math.max(0, Math.min(w[1], or0(t.get("resp_end"))) - Math.max(w[0], or0(t.get("resp_start"))));
             double transfer = or0(t.get("transfer"));
+            flow = Math.min(flow, Math.max(transfer - st[1] - st[2] - delayedResp, 0));
+            double moved = st[1] + st[2] + delayedResp + flow;
+            t.put("h2_flow_time", flow);
             t.put("retrans_count", (long) st[0]); t.put("retrans_time", st[1]); t.put("zero_window_time", st[2]); t.put("delayed_ack_time", delayedReq + delayedResp);
             t.put("queue_time", queue); t.put("network", network); t.put("service", service);
             t.put("transfer_clean", Math.max(transfer - moved, 0.0));
@@ -701,6 +871,8 @@ public final class Builder {
             boolean https = s.tlsSeen;
             t.put("truncated", answered && clen != null && clen > 0 && Boolean.TRUE.equals(t.get("body_expected")) && bodyBytes != null && bodyBytes < clen && !https);
             t.put("server_reported", serverReported((String) t.get("server_timing")));
+            // An Envoy gateway says how long its upstream took; the rest of what the capture saw as service is the gateway's own time
+            if (t.get("upstream_time") != null && service != null) t.put("gateway_time", Math.max(service - (Double) t.get("upstream_time"), 0.0));
         }
     }
 
@@ -739,12 +911,19 @@ public final class Builder {
         m.put("rtt", rttSrv);
         m.put("request_id", q.requestId);
         m.put("x_forwarded_for", q.xff);
+        m.put("proxy_client", s.proxyClient);
+        m.put("user_agent", q.userAgent);
+        m.put("health_check", healthCheck(q.uri, q.userAgent));
+        // The original client: a configured header first, then a PROXY protocol header
+        m.put("original_client", q.clientIp != null ? q.clientIp : s.proxyClient);
+        m.put("original_client_from", q.clientIp != null ? q.clientIpHeader : s.proxyClient != null ? "PROXY " + s.proxyVersion : null);
         m.put("content_encoding", r == null ? null : r.encoding); m.put("transfer_encoding", r == null ? null : r.transfer);
         m.put("last_frame", rLast == null ? null : rLast.frame);
         m.put("head_len", r == null || r.headLen == 0 ? null : r.headLen);
         m.put("resp_content_length", r == null ? null : r.contentLength);
         m.put("body_expected", r != null && !"HEAD".equals(q.method) && !"CONNECT".equals(q.method) && r.status != 204 && r.status != 304);
         m.put("server_timing", r == null ? null : r.serverTiming);
+        m.put("upstream_time", r == null ? null : r.upstreamTime);
         m.put("h2_stream", null);
         m.put("_req_headers", q.headers); m.put("_resp_headers", r == null ? null : r.headers); m.put("_req_body", q.body); m.put("_resp_body", r == null ? null : r.body);
         return m;

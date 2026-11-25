@@ -7,7 +7,7 @@ import java.util.stream.Collectors;
 public final class Compare {
     static final int MIN_SAMPLE = 5;
     static final double MATCH_WINDOW_S = 5.0, NEGLIGIBLE_S = 0.001;
-    static final String[] PHASE_AVG = {"network", "queue_time", "service", "transfer_clean", "retrans_time", "zero_window_time", "delayed_ack_time"};
+    static final String[] PHASE_AVG = {"network", "queue_time", "service", "transfer_clean", "retrans_time", "zero_window_time", "h2_flow_time", "delayed_ack_time"};
 
     private Compare() {}
 
@@ -56,10 +56,10 @@ public final class Compare {
     @SuppressWarnings("unchecked")
     static List<Map<String, Object>> filtered(Map<String, Object> result, Inspect.Query q) {
         Set<Integer> streams = new HashSet<>();
-        for (Map<String, Object> c : (List<Map<String, Object>>) result.get("connections")) if (Inspect.connMatches(q, c)) streams.add(((Number) c.get("stream")).intValue());
+        for (Map<String, Object> c : (List<Map<String, Object>>) result.get("connections")) if (Inspect.connMatches(q, c)) streams.add(Analysis.streamOf(c));
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> x : (List<Map<String, Object>>) result.get("transactions")) {
-            if (!streams.contains(((Number) x.get("stream")).intValue())) continue;
+            if (!streams.contains(Analysis.streamOf(x))) continue;
             if (q.url() != null && !String.valueOf(x.get("uri")).toLowerCase().contains(q.url().toLowerCase())) continue;
             out.add(x);
         }
@@ -181,7 +181,27 @@ public final class Compare {
     }
 
     @SuppressWarnings("unchecked")
-    public static Map<String, Object> twoPoint(Map<String, Object> ra, Map<String, Object> rb) {
+    public static Map<String, Object> twoPoint(Map<String, Object> ra, Map<String, Object> rb) { return twoPoint(ra, rb, null); }
+
+    /** The clock of B against A as offset + drift * (time - mid): each half of the pairs gives an offset, and their change over time is the drift.
+     *  Returns {offset at mid, drift in seconds per second, mid}. Drift stays 0 with fewer than DRIFT_MIN_PAIRS pairs in a half. */
+    static double[] clockModel(List<Map<String, Object>[]> pairs) {
+        double skew = clockSkew(pairs);
+        if (pairs.size() < 2 * DRIFT_MIN_PAIRS) return new double[] {skew, 0, 0};
+        List<Map<String, Object>[]> sorted = new ArrayList<>(pairs);
+        sorted.sort(Comparator.comparingDouble(p -> Analysis.d(p[0].get("req_start"))));
+        List<Map<String, Object>[]> first = sorted.subList(0, sorted.size() / 2), second = sorted.subList(sorted.size() / 2, sorted.size());
+        double t1 = Analysis.d(first.get(first.size() / 2)[0].get("req_start")), t2 = Analysis.d(second.get(second.size() / 2)[0].get("req_start"));
+        if (t2 - t1 < DRIFT_MIN_SPAN_S) return new double[] {skew, 0, 0};
+        double s1 = clockSkew(first), s2 = clockSkew(second);
+        return new double[] {(s1 + s2) / 2, (s2 - s1) / (t2 - t1), (t1 + t2) / 2};
+    }
+
+    static final int DRIFT_MIN_PAIRS = 5;
+    static final double DRIFT_MIN_SPAN_S = 10;
+
+    /** offsetSeconds, when given, is the clock difference the user knows, and replaces the estimate. */
+    public static Map<String, Object> twoPoint(Map<String, Object> ra, Map<String, Object> rb, Double offsetSeconds) {
         List<Map<String, Object>> aRows = new ArrayList<>((List<Map<String, Object>>) ra.get("transactions")), bRows = new ArrayList<>((List<Map<String, Object>>) rb.get("transactions"));
         Comparator<Map<String, Object>> byStart = Comparator.comparingDouble(x -> Analysis.d(x.get("req_start")));
         aRows.sort(byStart); bRows.sort(byStart);
@@ -196,7 +216,8 @@ public final class Compare {
         int[] unclear = new int[1];
         List<Map<String, Object>[]> likely = likely(aRows, bRows, taken, used, startGap(exact), unclear);
         if (!likely.isEmpty() && exact.isEmpty()) likely = likely(aRows, bRows, taken, used, startGap(likely), unclear);
-        double skew = clockSkew(exact.isEmpty() ? likely : exact);
+        double[] model = offsetSeconds != null ? new double[] {offsetSeconds, 0, 0} : clockModel(exact.isEmpty() ? likely : exact);
+        double skew = model[0];
         List<Map<String, Object>> rows = new ArrayList<>();
         for (int kind = 0; kind < 2; kind++) {
             for (Map<String, Object>[] p : kind == 0 ? exact : likely) {
@@ -205,8 +226,9 @@ public final class Compare {
                 r.put("match", kind == 0 ? "exact" : "likely"); r.put("method", a.get("method")); r.put("uri", a.get("uri")); r.put("url", a.get("url_template")); r.put("status", a.get("status"));
                 r.put("id_a", a.get("id")); r.put("id_b", b.get("id")); r.put("total_a", a.get("total")); r.put("total_b", b.get("total")); r.put("service_b", b.get("service"));
                 r.put("added", delta(dn(b.get("total")), dn(a.get("total"))));
-                r.put("forward", Analysis.d(b.get("req_start")) - Analysis.d(a.get("req_start")) - skew);
-                r.put("back", a.get("resp_start") != null && b.get("resp_start") != null ? Analysis.d(a.get("resp_start")) - Analysis.d(b.get("resp_start")) + skew : null);
+                double at = skew + model[1] * (Analysis.d(a.get("req_start")) - model[2]);
+                r.put("forward", Analysis.d(b.get("req_start")) - Analysis.d(a.get("req_start")) - at);
+                r.put("back", a.get("resp_start") != null && b.get("resp_start") != null ? Analysis.d(a.get("resp_start")) - Analysis.d(b.get("resp_start")) + at : null);
                 rows.add(r);
             }
         }
@@ -216,7 +238,7 @@ public final class Compare {
         String confidence = rate < 0.5 || (matched > 0 && exact.isEmpty() && (double) unclear[0] / matched > 0.3) ? "low" : rate >= 0.8 && exact.size() >= 0.9 * matched ? "high" : "medium";
         Map<String, Double> added = spread(rows.stream().map(r -> dn(r.get("added"))).collect(Collectors.toList()));
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("rows", rows); out.put("urls", byUrl(rows)); out.put("clock_skew", skew); out.put("exact", exact.size()); out.put("likely", likely.size()); out.put("unclear", unclear[0]);
+        out.put("rows", rows); out.put("urls", byUrl(rows)); out.put("clock_skew", skew); out.put("clock_drift_ppm", model[1] * 1e6); out.put("clock_given", offsetSeconds != null); out.put("exact", exact.size()); out.put("likely", likely.size()); out.put("unclear", unclear[0]);
         out.put("match_rate", rate); out.put("confidence", confidence); out.put("added", added.get("median")); out.put("added_p95", added.get("p95"));
         out.put("service", spread(rows.stream().map(r -> dn(r.get("service_b"))).collect(Collectors.toList())).get("median"));
         out.put("reversed", added.get("median") != null && added.get("median") < -NEGLIGIBLE_S);
