@@ -39,7 +39,8 @@
       <details>
         <summary>{{ _("Decrypt HTTPS") }}</summary>
         <div class="fields">
-          <label>{{ _("TLS key log file") }} <input type="file" name="keylog"></label>
+          <label>{{ _("TLS key log file") }} <input type="file" name="keylog" multiple>
+            <span class="hint">{{ _("Select one or more. Give the key logs of both sides of a proxy, such as NetScaler, to decrypt both.") }}</span></label>
           <label>{{ _("RSA private key") }} <input type="file" name="rsa_key"></label>
         </div>
         <p class="hint">{{ _("A key log works for all modern TLS. An RSA key only reads old RSA key exchange. Keys are removed after the analysis.") }}</p>

@@ -102,6 +102,17 @@ def _opt_float(v):
         _bad(knowledge.t("Time is not valid: {value}", value=v))
 
 
+def _offset_ms(v):
+    """A clock difference in milliseconds, as seconds. A comma works as the decimal mark too."""
+    v = (v or "").strip().replace(",", ".")
+    if not v:
+        return None
+    try:
+        return float(v) / 1000
+    except ValueError:
+        _bad(knowledge.t("The clock difference must be a number of milliseconds."))
+
+
 def _ip(v, name):
     v = (v or "").strip()
     if not v:
@@ -316,14 +327,14 @@ def create_app(settings=None, https=False):
         return page(request, "home.html", section="captures", analyses=records.search(settings, engine.list_analyses(settings), q), search=q, max_mb=settings.max_size_mb, ttl=settings.ttl_days)
 
     @app.post("/upload", response_class=HTMLResponse)
-    async def upload(request: Request, capture: UploadFile, more: list[UploadFile] = (), keylog: UploadFile | None = None, rsa_key: UploadFile | None = None,
+    async def upload(request: Request, capture: UploadFile, more: list[UploadFile] = (), keylog: list[UploadFile] = (), rsa_key: UploadFile | None = None,
                      host_a: str = Form(""), host_b: str = Form(""), port: str = Form(""), start: str = Form(""),
                      end: str = Form(""), display_filter: str = Form(""), decode_as: str = Form("")):
         job = await accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, more, decode_as)
         log(request, "upload", capture.filename)
         return page(request, "_job.html", job=job)
 
-    async def accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, more=(), decode_as=""):
+    async def accept(capture, keylogs, rsa_key, host_a, host_b, port, start, end, display_filter, more=(), decode_as=""):
         if not capture.filename:
             _bad(knowledge.t("Choose a capture file."))
         flt = tshark.Filter(_ip(host_a, "First host"), _ip(host_b, "Second host"), _opt_int(port, "Port"), _epoch(start), _epoch(end),
@@ -343,10 +354,17 @@ def create_app(settings=None, https=False):
             name = capture.filename if len(parts) == 1 else knowledge.t("{name} and {n} more", name=capture.filename, n=len(parts) - 1)
             path = engine.join_parts(parts, tmp, settings)
             kl = rk = None
-            if keylog and keylog.filename:
-                kl = Path(tmp) / "keylog"
-                await _save(keylog, kl, KEYLOG_LIMIT, "Key log")
-                engine.check_keylog(kl)
+            logs = []  # several key logs, such as one for each TLS leg on both sides of a NetScaler, are joined into one
+            for i, keylog in enumerate(k for k in keylogs if k and k.filename):
+                logs.append(Path(tmp) / f"keylog-{i}")
+                await _save(keylog, logs[-1], KEYLOG_LIMIT - sum(p.stat().st_size for p in logs[:-1]), "Key log")
+                engine.check_keylog(logs[-1])
+            if logs:
+                kl = logs[0] if len(logs) == 1 else Path(tmp) / "keylog"
+                if len(logs) > 1:
+                    engine.join_keylogs(logs, kl)
+                    for one in logs:
+                        one.unlink()
             if rsa_key and rsa_key.filename:
                 rk = Path(tmp) / "rsa.pem"
                 await _save(rsa_key, rk, KEY_LIMIT, "RSA key")
@@ -507,7 +525,7 @@ def create_app(settings=None, https=False):
             ctx.update(a=a, b=b)
             with a.connect() as da, b.connect() as db:
                 if q.get("mode") == "points":
-                    ctx["points"] = compare.two_point(da, db)
+                    ctx["points"] = compare.two_point(da, db, _offset_ms(q.get("offset_ms")))
                 else:
                     fa = side_filter(q, "_a")
                     fb = side_filter({**{k[:-2] + "_b": v for k, v in q.items() if k.endswith("_a") and v}, **{k: v for k, v in q.items() if k.endswith("_b") and v}}, "_b")
@@ -563,7 +581,7 @@ def create_app(settings=None, https=False):
                     events=("login", "login_failed", "logout", "upload", "delete", "export", "notes", "baseline", "thresholds", "token_created", "token_revoked", "api_upload", "api_delete"))
 
     @app.post(API_PREFIX + "captures", status_code=202)
-    async def api_upload(request: Request, capture: UploadFile, keylog: UploadFile | None = None, rsa_key: UploadFile | None = None,
+    async def api_upload(request: Request, capture: UploadFile, keylog: list[UploadFile] = (), rsa_key: UploadFile | None = None,
                          host_a: str = Form(""), host_b: str = Form(""), port: str = Form(""), start: str = Form(""), end: str = Form(""), display_filter: str = Form(""),
                          decode_as: str = Form("")):
         job = await accept(capture, keylog, rsa_key, host_a, host_b, port, start, end, display_filter, (), decode_as)
