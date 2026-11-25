@@ -82,6 +82,21 @@ def lead(text):
     return parts[0], parts[1] if len(parts) > 1 else ""
 
 
+def _assets_stamp():
+    """Version of app.css and app.js in their URLs: the release and the files' change time, so browsers fetch them again after every deployment."""
+    stamp = max(int((HERE / "static" / name).stat().st_mtime) for name in ("app.css", "app.js"))
+    return f"{__version__}.{_base36(stamp)}"
+
+
+def _base36(n):
+    digits = ""
+    while True:
+        n, d = divmod(n, 36)
+        digits = "0123456789abcdefghijklmnopqrstuvwxyz"[d] + digits
+        if not n:
+            return digits
+
+
 def _bad(message, code=400):
     raise HTTPException(code, message)
 
@@ -191,7 +206,7 @@ def create_app(settings=None, https=False):
         records.audit(settings, event, request.client.host if request.client else "unknown", detail)
 
     words = re.findall(r'\bt\("([^"]+)"\)', (HERE / "static/app.js").read_text())
-    templates.env.globals.update(version=__version__, display_filters=display_filters.PRESETS, tab_labels=TAB_LABELS, _=knowledge.t, warning_text=knowledge.warnings, lang=knowledge.language,
+    templates.env.globals.update(version=__version__, assets=_assets_stamp(), display_filters=display_filters.PRESETS, tab_labels=TAB_LABELS, _=knowledge.t, warning_text=knowledge.warnings, lang=knowledge.language,
                                  languages=lambda: [(code, LANGUAGE_NAMES[code]) for code in knowledge.LANGUAGES],
                                  js_words=lambda: {w: knowledge.t(w) for w in words})
 

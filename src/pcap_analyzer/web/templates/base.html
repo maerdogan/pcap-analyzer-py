@@ -9,11 +9,11 @@
   <link rel="icon" href="/static/brand/favicon.png" type="image/png">
   <link rel="stylesheet" href="/static/vendor/ag-grid.min.css">
   <link rel="stylesheet" href="/static/vendor/ag-theme-quartz.min.css">
-  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+  <link rel="stylesheet" href="/static/app.css?v={{ assets }}">
   <script src="/static/vendor/htmx.min.js" defer></script>
   <script src="/static/vendor/ag-grid.min.js" defer></script>
   <script src="/static/vendor/echarts.min.js" defer></script>
-  <script src="/static/app.js?v={{ version }}" defer></script>
+  <script src="/static/app.js?v={{ assets }}" defer></script>
 </head>
 <body class="app" data-words='{{ js_words() | tojson }}' hx-headers='{"X-CSRF-Token": "{{ form_token() }}"}'>
   <a class="skip" href="#main">{{ _("Skip to content") }}</a>
@@ -21,7 +21,7 @@
   {% set recent = recent_captures() %}
   <aside class="side" id="side">
     <a class="side-brand" href="/" aria-label="pcap-analyzer">
-      <img src="/static/brand/logo-on-dark.png" alt="" width="176" height="64">
+      <img src="/static/brand/logo-on-dark.png" alt="" width="196" height="45">
     </a>
     <div class="side-scroll">
       <nav class="side-group" aria-label="{{ _("Main") }}">

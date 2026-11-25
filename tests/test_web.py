@@ -498,3 +498,11 @@ def test_captures_are_listed_by_day(client, samples):
     upload(client, samples / "http_scenarios.pcap")
     upload(client, samples / "http_scenarios.pcap")
     assert client.get("/").text.count('class="day"') == 1
+
+
+def test_static_files_carry_their_change_time(client):
+    from pcap_analyzer import __version__
+    page = client.get("/").text
+    css, js = re.search(r'app\.css\?v=([\w.]+)"', page)[1], re.search(r'app\.js\?v=([\w.]+)"', page)[1]
+    assert css == js and css.startswith(__version__ + ".") and len(css) > len(__version__) + 1
+    assert 'logo-on-dark.png" alt="" width="196" height="45"' in page
