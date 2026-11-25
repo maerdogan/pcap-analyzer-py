@@ -8,7 +8,7 @@ curl -H "Authorization: Bearer $TOKEN" https://pcap.example.internal/api/v1/anal
 
 | Call | Result |
 |---|---|
-| `POST /api/v1/captures` | Upload with the form field `capture`. Optional: `keylog`, `rsa_key`, `host_a`, `host_b`, `port`, `display_filter`, `decode_as` (rules such as `tcp.port==9000,http`, separated by `;`). Returns `202` and a `job`. |
+| `POST /api/v1/captures` | Upload with the form field `capture`. Optional: `keylog` (may be sent more than once), `rsa_key`, `host_a`, `host_b`, `port`, `display_filter`, `decode_as` (rules such as `tcp.port==9000,http`, separated by `;`). Returns `202` and a `job`. |
 | `GET /api/v1/jobs/{job}` | `state` is `waiting`, `running`, `done`, `failed` or `cancelled`. `analysis` holds the id when done. |
 | `GET /api/v1/analyses` | Saved analyses. |
 | `GET /api/v1/analyses/{id}` | Details of one analysis. |

@@ -24,7 +24,8 @@ Upload a PCAP and see where the time went: connection setup, network delay, serv
 - HTTPS decryption with a TLS key log file or RSA key
 - Wireshark's views in the browser: expert information as issues, protocol hierarchy, conversations, endpoints, packet lengths, IO graph, flow graph, Stevens, throughput, round trip and window graphs, Follow TCP Stream, Export Objects, Decode As, QUIC with HTTP/3, service response times of LDAP, Kerberos, SMB2, Kafka, SMTP, DCERPC, MQTT, AMQP and FTP, SIP calls and RTP jitter and loss
 - Export to CSV, Excel, JSON, PNG, SVG, HTML, HAR and PCAP
-- TLS view without a key: versions, ciphers, failed handshakes and certificate end dates
+- TLS view without a key: versions, ciphers, failed handshakes, certificate end dates and chain lengths, and client certificates of mutual TLS
+- Proxies and gateways: HTTP/2 flow control waits, stream resets and GOAWAY, PROXY protocol, the original client from forwarded headers, Envoy's upstream time, health checks and retries, NetScaler traces (nstrace) with both legs linked
 - WebSocket and gRPC handling, gzip captures and captures in several parts
 - Captures up to 1 GB, read in parts of whole connections so memory stays near 700 MiB
 - Limits per URL, a baseline capture, trends across captures, case notes and an activity log
@@ -48,7 +49,7 @@ pcap-analyzer serve
 Open <http://127.0.0.1:8000> and sign in as `admin`. The same engine works from the command line:
 
 ```bash
-pcap-analyzer analyze capture.pcap --keylog keys.log --host 10.0.0.5 --port 8080
+pcap-analyzer analyze capture.pcap --keylog keys.log --host 10.0.0.5 --port 8080  # --keylog can be given more than once
 pcap-analyzer inspect ANALYSIS_ID --src 10.0.0.5 --dst 10.0.0.9 --port 8080
 ```
 
