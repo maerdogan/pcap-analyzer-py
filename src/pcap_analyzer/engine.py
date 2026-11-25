@@ -2,6 +2,7 @@
 import gzip
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -9,7 +10,7 @@ import time
 from dataclasses import astuple, dataclass
 from pathlib import Path
 
-from . import __version__, knowledge, records, reports, split, store, tshark
+from . import __version__, knowledge, records, reports, split, store, tshark, vault
 from .config import Settings
 from .parser import Builder, finish_stream, nat_views
 
@@ -29,6 +30,9 @@ HEAD_BYTES = 4096
 CHUNK = 1 << 20
 STALE_TMP_S = 6 * 3600
 TMP_PREFIXES = ("pcap-analyzer-", "pcap-upload-", "pcap-export-")
+ID = re.compile(r"[0-9a-f]{20}")
+SEEN_EVERY_S = 3600
+_seen = {}
 PART_BYTES = 100 * CHUNK  # a larger capture is read in parts, and one part takes about as much memory as a capture this size
 STREAM_FIELDS = re.compile(r"\b(frame\.number|tcp\.stream)\b")
 KEYLOG_CUT_BYTES = 8 * CHUNK  # a larger key log, like NetScaler's for every session it served, is cut to the sessions in the capture
@@ -74,7 +78,7 @@ def is_nstrace(head):
 
 def looks_like_capture(path):
     """True for a pcap, a pcapng or a NetScaler trace, by its first bytes."""
-    with open(path, "rb") as f:
+    with vault.open_read(path) as f:
         head = f.read(NSTRACE_HEAD)
     return head.startswith(PCAP_MAGICS) or is_nstrace(head)
 
@@ -82,7 +86,7 @@ def looks_like_capture(path):
 def _refuse_compressed(path):
     """tshark would unpack these, and the unpacked size cannot be known or limited beforehand.
     Other files people pick by mistake get a message that names them, rather than tshark's guess at an unknown format."""
-    with open(path, "rb") as f:
+    with vault.open_read(path) as f:
         head = f.read(HEAD_BYTES)
     if is_nstrace(head):  # its signature record is text, but it is a capture
         return
@@ -146,13 +150,13 @@ def check_rsa_key(path):
 
 def unpack(path, folder, settings):
     """Unpack a gzip capture and stop at the size limit, because the real size is unknown until then."""
-    with open(path, "rb") as f:
+    with vault.open_read(path) as f:
         if f.read(2) != GZIP_MAGIC:
             return Path(path)
     limit, written = settings.max_size_mb * CHUNK, 0
     fd, name = tempfile.mkstemp(prefix="unpacked-", dir=folder)
     try:
-        with gzip.open(path, "rb") as src, open(fd, "wb") as dst:
+        with vault.open_read(path) as raw, gzip.open(raw, "rb") as src, open(fd, "wb") as dst:
             while chunk := src.read(CHUNK):
                 written += len(chunk)
                 if written > limit:
@@ -168,7 +172,7 @@ def join_parts(paths, folder, settings):
     parts = [unpack(p, folder, settings) for p in paths]
     for p in parts:
         _refuse_compressed(p)
-    if sum(p.stat().st_size for p in parts) > settings.max_size_mb * CHUNK:
+    if sum(vault.size(p) for p in parts) > settings.max_size_mb * CHUNK:
         raise CaptureTooLarge(knowledge.t("{name} is larger than the {n} MB limit", name=Path(paths[0]).name, n=settings.max_size_mb))
     if len(parts) == 1:
         return parts[0]
@@ -177,16 +181,19 @@ def join_parts(paths, folder, settings):
     return out
 
 
-def _digest(paths, flt, slow_s):
+def _digest(paths, flt, slow_s, group=""):
+    """The same input gives the same analysis, within one group: a group never gets the result of another."""
     h = hashlib.sha256()
     h.update(__version__.encode())
     for p in paths:
         h.update(b"\0")
         if p:
-            with open(p, "rb") as f:
+            with vault.open_read(p) as f:
                 while chunk := f.read(1 << 20):
                     h.update(chunk)
     h.update(repr((astuple(flt), slow_s)).encode())
+    if group:
+        h.update(b"\0group\0" + group.encode())
     return h.hexdigest()[:20]
 
 
@@ -269,22 +276,22 @@ def _quality(b, facts):
                 started_before=facts["started_before"], open_at_end=facts["open_at_end"], one_way=facts["one_way"], encrypted=facts["encrypted"])
 
 
-def analyze(path, keylog=None, rsa_key=None, flt=None, settings=None, use_cached=True, display_name=None, limit=None):
-    """keylog is one key log, or a list of them that are joined into one."""
+def analyze(path, keylog=None, rsa_key=None, flt=None, settings=None, use_cached=True, display_name=None, limit=None, owner=None):
+    """keylog is one key log, or a list of them that are joined into one. owner names who uploaded the capture and in which group: dict(user, group)."""
     settings = settings or Settings()
     own_limit = limit is None
     limit = limit or tshark.Limit(settings.analysis_timeout_s)
     try:
-        return _analyze(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit)
+        return _analyze(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit, owner or {})
     finally:
         if own_limit:
             limit.close()
 
 
-def _analyze(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit):
+def _analyze(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit, owner):
     flt = flt or tshark.Filter()
     path = Path(path)
-    if path.stat().st_size > settings.max_size_mb * CHUNK:
+    if vault.size(path) > settings.max_size_mb * CHUNK:
         raise CaptureTooLarge(knowledge.t("{name} is larger than the {n} MB limit", name=path.name, n=settings.max_size_mb))
     keylogs = [keylog] if isinstance(keylog, (str, Path)) else list(keylog or ())
     for one in keylogs:
@@ -298,16 +305,16 @@ def _analyze(path, keylog, rsa_key, flt, settings, use_cached, display_name, lim
             join_keylogs(keylogs, keylog)
         capture = join_parts([path], folder, settings)
         display_name = display_name or path.name.removesuffix(".gz")
-        return _run(capture, keylog, rsa_key, flt, settings, use_cached, display_name, limit)
+        return _run(capture, keylog, rsa_key, flt, settings, use_cached, display_name, limit, owner)
 
 
-def _run(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit):
+def _run(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit, owner):
     ts_version = tshark.version(settings.tshark)
     slow_s = records.slow_s(settings)
-    aid = _digest([path, keylog, rsa_key], flt, slow_s)
+    aid = _digest([path, keylog, rsa_key], flt, slow_s, owner.get("group") or "")
     out = settings.workdir / aid
     if use_cached and (out / "meta.json").exists():
-        return Analysis(aid, out, json.loads((out / "meta.json").read_text()), True)
+        return Analysis(aid, out, json.loads(vault.read_bytes(out / "meta.json")), True)
 
     started = time.monotonic()
     warnings = []
@@ -318,7 +325,7 @@ def _run(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit):
         run = lambda feed=None: tshark.packets(path, used_keylog, rsa_key, flt, settings.tshark, warnings, limit, settings.workdir, settings.analysis_timeout_s, feed)
         writer = store.Writer(tmp / "analysis.duckdb")
         b, views = Builder(), []
-        if path.stat().st_size > PART_BYTES:
+        if vault.size(path) > PART_BYTES:
             number, parts = _read_in_parts(path, flt, run, b, writer, views, limit, slow_s, warnings)
         else:
             for p in run():
@@ -336,7 +343,7 @@ def _run(path, keylog, rsa_key, flt, settings, use_cached, display_name, limit):
         _mark_capture_end(tmp / "analysis.duckdb", b.t_last, slow_s)
         _link_saved(tmp / "analysis.duckdb")
         limit.check()
-        return _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_version, started, warnings, b, parts, slow_s)
+        return _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_version, started, warnings, b, parts, slow_s, owner)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -345,7 +352,7 @@ def client_randoms(path):
     """The random of every ClientHello in a capture, found in the raw bytes, so any capture format and tunnel works.
     The record header, the handshake header, the version and the random lead every ClientHello, so they sit in its first segment."""
     found, tail = set(), b""
-    with open(path, "rb") as f:
+    with vault.open_read(path) as f:
         while chunk := f.read(16 * CHUNK):
             data = tail + chunk
             found.update(r.hex() for r in CLIENT_HELLO.findall(data))
@@ -485,21 +492,22 @@ def _to_whole(p, frames, offset, first_frame):
         p["tcp.stream"] = tshark.AGG.join(map(str, sids))
 
 
-def _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_version, started, warnings, b, parts, slow_s):
+def _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_version, started, warnings, b, parts, slow_s, owner):
     with store.connect(tmp / "analysis.duckdb") as db:
         facts = _facts(db)
     meta = dict(
-        id=aid, filename=display_name or path.name, size=path.stat().st_size, created=time.time(), tshark=ts_version, version=__version__,
+        id=aid, filename=display_name or path.name, size=vault.size(path), created=time.time(), tshark=ts_version, version=__version__,
+        uploader=owner.get("user") or "", group=owner.get("group") or "",
         decryption="keylog" if keylog else "rsa_key" if rsa_key else None, filter=flt.expression(), decode_as=list(flt.decode_as),
         capture_drops=split.drops(path),
         packets=b.total, tcp_packets=b.tcp, bytes=b.bytes, connections=facts["connections"], transactions=facts["transactions"],
         ip_fragments=b.fragments, frag_needed=b.frag_needed, copies=b.copies, tunnelled=b.tunnelled, capture_start=b.t_first, capture_end=b.t_last, duration_s=round(time.monotonic() - started, 3), slow_s=slow_s,
         quality=_quality(b, facts), warnings=_warnings(b, facts, bool(keylog or rsa_key), warnings), parts=parts)
     if settings.keep_capture:
-        shutil.copyfile(path, tmp / "capture")
-        (tmp / "capture").chmod(0o600)
+        vault.store_copy(path, tmp / "capture")  # encrypted once the data folder is
     meta["capture_kept"] = settings.keep_capture
-    (tmp / "meta.json").write_text(json.dumps(meta, indent=2))
+    store.seal_database(tmp / "analysis.duckdb")
+    vault.write_json(tmp / "meta.json", meta, indent=2)
     shutil.rmtree(out, ignore_errors=True)
     try:
         tmp.rename(out)
@@ -510,20 +518,56 @@ def _save(tmp, out, aid, path, keylog, rsa_key, flt, settings, display_name, ts_
 
 def open_analysis(aid, settings=None):
     settings = settings or Settings()
-    if not re.fullmatch(r"[0-9a-f]{20}", aid):
+    if not ID.fullmatch(aid or ""):
         raise NotFound(aid)
     d = settings.workdir / aid
     if not (d / "meta.json").exists():
         raise NotFound(aid)
-    return Analysis(aid, d, json.loads((d / "meta.json").read_text()), True)
+    try:
+        meta = json.loads(vault.read_bytes(d / "meta.json"))
+    except vault.Tampered as e:
+        raise NotFound(aid) from e
+    return Analysis(aid, d, meta, True)
 
 
 def list_analyses(settings=None):
+    """Every saved analysis, newest first. One whose files were changed by hand is left out, and the admin sees a notice."""
     settings = settings or Settings()
     if not settings.workdir.exists():
         return []
-    metas = [json.loads(m.read_text()) for m in settings.workdir.glob("*/meta.json") if not m.parent.name.startswith(".")]
+    metas = []
+    for m in settings.workdir.glob("*/meta.json"):
+        if ID.fullmatch(m.parent.name):
+            try:
+                metas.append(json.loads(vault.read_bytes(m)))
+            except (vault.Tampered, ValueError):
+                continue
     return sorted(metas, key=lambda m: -m["created"])
+
+
+def seen(aid, settings):
+    """Mark an analysis as opened, at most once an hour, by the time of an empty .seen file. Retention counts from it."""
+    now = time.time()
+    if now - _seen.get(aid, 0) < SEEN_EVERY_S:
+        return
+    _seen[aid] = now
+    path = settings.workdir / aid / vault.SEEN
+    try:
+        path.touch(0o600)
+        os.utime(path, (now, now))
+    except OSError:
+        pass
+
+
+def last_use(folder):
+    """When an analysis was last opened, or else when it was made. Only file times are read, so this works while the vault is locked."""
+    times = []
+    for name in ("meta.json", vault.SEEN):
+        try:
+            times.append((folder / name).stat().st_mtime)
+        except OSError:
+            continue
+    return max(times) if times else folder.stat().st_mtime
 
 
 def delete(aid, settings=None):
@@ -546,12 +590,22 @@ def _remove_stale(paths, cutoff):
 
 
 def purge(settings=None, now=None, tmp_root=Path("/tmp")):
-    """Delete expired analyses and what a killed process left behind, and return how many analyses were removed."""
+    """Delete analyses nobody opened for the retention time, and what a killed process left behind. Returns how many analyses were removed.
+    An analysis never opened counts from when it was made."""
     settings = settings or Settings()
     now = now or time.time()
-    old = [m["id"] for m in list_analyses(settings) if now - m["created"] > settings.ttl_days * 86400]
-    for aid in old:
-        delete(aid, settings)
+    old = []
+    if settings.workdir.exists():
+        for d in settings.workdir.iterdir():
+            try:
+                if d.is_dir() and ID.fullmatch(d.name) and now - last_use(d) > settings.ttl_days * 86400:
+                    old.append(d)
+            except OSError:
+                continue
+    for d in old:
+        shutil.rmtree(d, ignore_errors=True)
+        _seen.pop(d.name, None)
+        records.audit(settings, "expired", "server", d.name)
     records.trim_audit(settings)
     cutoff = now - STALE_TMP_S
     if settings.workdir.exists():

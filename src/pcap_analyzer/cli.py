@@ -4,7 +4,7 @@ import getpass
 import json
 import sys
 
-from . import __version__, compare, engine, reports, tshark
+from . import __version__, compare, engine, reports, tshark, vault
 from .config import Settings
 
 
@@ -19,6 +19,17 @@ def _summary(a):
     for w in m["warnings"]:
         print(f"  warning: {w}")
     print(f"  result: {a.db_path}")
+
+
+def _unlock(settings):
+    """An encrypted data folder opens only with the setup admin's password, asked for on the terminal."""
+    v = vault.of(settings.workdir)
+    if not v.is_set_up() or v.is_unlocked():
+        return
+    if not sys.stdin.isatty():
+        raise vault.Locked()
+    if not v.unlock(getpass.getpass("The data folder is encrypted. Setup admin password: ")):
+        raise ValueError("the password does not open the data folder")
 
 
 def main(argv=None):
@@ -76,6 +87,8 @@ def main(argv=None):
     args = ap.parse_args(argv)
     settings = Settings()
     try:
+        if args.cmd not in ("serve", "hash-password", "purge"):  # the retention job reads only file times
+            _unlock(settings)
         if args.cmd == "analyze":
             if len(args.host) > 2:
                 ap.error("--host can be given at most twice")

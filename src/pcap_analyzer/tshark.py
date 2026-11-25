@@ -1,6 +1,7 @@
 """Run tshark and yield one dict per packet.
 
-The capture and any TLS key are copied to a private directory under /tmp first, because
+A capture of an encrypted data folder reaches tshark through a pipe, decrypted as it is read, so it is never on disk in plain.
+A plain capture and any TLS key are copied to a private directory under /tmp first, because
 Ubuntu's AppArmor profile stops tshark from reading most other paths.
 """
 import ctypes
@@ -16,6 +17,8 @@ import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
+
+from . import vault
 
 MIN_VERSION = (4, 0)
 FILE_LIMIT = 1 << 34  # tshark writes no files here, apart from its temporary reassembly data
@@ -325,17 +328,34 @@ def _private_copy(src, directory, name):
     return dst
 
 
+def _decrypting(path, feed):
+    """An encrypted capture is fed through a pipe, decrypted as tshark reads it."""
+    if feed is None and vault.is_encrypted(path):
+        return lambda: vault.chunks(path)
+    return feed
+
+
 def extract_stream(capture, stream, out, binary="tshark", feed=None):
     """Write one TCP connection to a new capture file, keeping it whole so Wireshark can reassemble it.
     With feed, tshark reads one part of the capture from a pipe, and stream is the connection's number in that part."""
+    feed = _decrypting(capture, feed)
     with tempfile.TemporaryDirectory(prefix="pcap-analyzer-", dir="/tmp") as tmp:
+        os.chmod(tmp, 0o700)
         src = "-" if feed else _private_copy(capture, tmp, "capture")
         dst = Path(tmp) / "out.pcapng"
-        data = b"".join(feed()) if feed else None
-        done = subprocess.run([binary, "-n", "-r", str(src), "-Y", f"tcp.stream == {int(stream)}", "-w", str(dst)], input=data, capture_output=True)
-        done.stderr = done.stderr.decode("utf-8", "replace")
-        if done.returncode != 0:
-            raise TsharkError(done.stderr.strip().splitlines()[-1] if done.stderr.strip() else "tshark could not write the file")
+        with tempfile.TemporaryFile(dir=tmp) as errfile:
+            proc = subprocess.Popen([binary, "-n", "-r", str(src), "-Y", f"tcp.stream == {int(stream)}", "-w", str(dst)],
+                                    stdin=subprocess.PIPE if feed else subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=errfile)
+            pump = threading.Thread(target=_pump, args=(proc, feed), daemon=True) if feed else None
+            if pump:
+                pump.start()
+            code = proc.wait()
+            if pump:
+                pump.join()
+            errfile.seek(0)
+            err = errfile.read().decode("utf-8", "replace").strip()
+        if code != 0:
+            raise TsharkError(err.splitlines()[-1] if err else "tshark could not write the file")
         shutil.copyfile(dst, out)
 
 
@@ -380,6 +400,7 @@ def packets(path, keylog=None, rsa_key=None, flt=None, binary="tshark", warnings
 
 def _packets(path, keylog, rsa_key, flt, binary, warnings, limit, workdir, seconds, feed):
     limit = limit or Limit()
+    feed = _decrypting(path, feed)
     expr = flt.expression() if flt else None
     decode = flt.decode_args() if flt else []
     with tempfile.TemporaryDirectory(prefix="pcap-analyzer-", dir="/tmp") as tmp:
@@ -438,6 +459,7 @@ def run(capture, args, binary="tshark", workdir=None, seconds=0, limit=None, fee
     The arguments may name {out}, a folder in the private directory that tshark may write to, as --export-objects does,
     and collect(folder) runs on it before the directory goes away. max_lines stops tshark after that many lines."""
     limit = limit or Limit()
+    feed = _decrypting(capture, feed)
     with tempfile.TemporaryDirectory(prefix="pcap-analyzer-", dir="/tmp") as tmp:
         os.chmod(tmp, 0o700)
         out = Path(tmp) / "out"
