@@ -4,8 +4,21 @@ All changes made on the same day are one minor version.
 
 ## Unreleased
 
+### Added
+
+- Users, groups and roles. An admin adds groups and users under Settings → Users: user name, full name, employee ID, group, and the role viewer (opens and exports), analyst (also uploads, deletes own captures, notes, saved filters) or admin (also users, preferences, tokens, the activity log and encryption). Users sign in with a local password or through LDAP, with the group and role from the app. A role that may not do something gets 403.
+- Groups keep their captures apart: each capture records its uploader and group, and a user sees only the captures of their own group on every page, export, comparison, trend, baseline and REST call, including jobs; others answer 404. Admins see every group. Only the uploader or an admin may delete a capture.
+- Encryption at rest, the design of the Java edition: every file in the data folder is encrypted with its own AES-256-GCM key in 1 MiB segments, keys are wrapped with RSA-2048, the data key is sealed with a 16-character master key and the master key with the setup admin's password. Analysis databases use DuckDB's own encryption. After a restart nothing opens until the setup admin signs in; others see a waiting page. The setup admin sets the master key on Settings → Encryption at the first sign-in, which encrypts what is already there, and can show and change it later.
+- Files changed, cut, left plain or brought from another install are found when read and by an hourly check, and admins see a notice on every page.
+- The REST API takes a user's name and password as well as tokens, and a token can be made for one group.
+
 ### Changed
 
+- The first sign-in still is admin / admin, then the master key. A password in PCAP_ANALYZER_ADMIN_PASSWORD or PCAP_ANALYZER_ADMIN_PASSWORD_HASH is taken over once into the data folder and can be removed from the settings.
+- Passwords need at least 12 characters, for everyone.
+- The activity log is kept encrypted, line by line, in a file whose name says nothing about it, and records who did what.
+- An analysis is deleted when nobody opened it for PCAP_ANALYZER_TTL_DAYS days, counting from its last view rather than from its upload.
+- Uploads wait in a private folder inside the data folder rather than in /tmp, and tshark reads encrypted captures through a pipe.
 - The web interface has a new look with the PCAP Analyzer logo. The sections, the views of the open capture and the recent captures sit in a dark side menu; the URL search, language and sign out sit in a bar at the top. On narrow screens the side menu opens with a menu button.
 - Pages use softer, less bright backgrounds, and tables have clearer column titles. Text keeps at least 4.5:1 contrast.
 - The explanation on a request and an issue page spreads over the page in columns: the first sentence of what it means, what this capture shows and three checks. The rest, the common misreading and the sources open on demand.

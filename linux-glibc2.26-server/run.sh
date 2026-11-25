@@ -95,7 +95,8 @@ EOF
 
 start() {
   running && { echo "Already running with PID $(cat "$PIDFILE")."; return; }
-  [[ -n ${PCAP_ANALYZER_ADMIN_PASSWORD_HASH:-}${PCAP_ANALYZER_ADMIN_PASSWORD:-} ]] ||
+  # once taken over, the password lives in the data folder and can be removed from .env
+  [[ -n ${PCAP_ANALYZER_ADMIN_PASSWORD_HASH:-}${PCAP_ANALYZER_ADMIN_PASSWORD:-} || -f $PCAP_ANALYZER_WORKDIR/.admin-password.json || -f $PCAP_ANALYZER_WORKDIR/.keyring ]] ||
     die "no admin password yet. Run ./run.sh password first"
   port_busy && die "port $PORT is already in use. Stop that program or change PCAP_ANALYZER_PORT in .env"
   mkdir -p "$PCAP_ANALYZER_WORKDIR"

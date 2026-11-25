@@ -45,9 +45,11 @@ A port that carries another protocol than its usual one, such as HTTP on 9000, c
 ## 6. Compare and follow
 
 - **Compare** shows two captures side by side, before and after a change, or both sides of a load balancer. A `traceparent` or `X-Request-ID` header gives exact matches.
-- **Set as baseline** on a healthy capture makes later captures list what changed.
-- **Trend** follows one URL across captures.
-- **Preferences** holds the slow request limit and URL targets.
+- **Set as baseline** on a healthy capture makes later captures of your group list what changed. Each group has its own baseline.
+- **Trend** follows one URL across the captures of your group.
+- **Preferences** holds the slow request limit, URL targets and API tokens. Admins only.
+
+Each user is in one group and sees only the captures of that group; admins see all. Viewers open and export, analysts also upload, delete their own captures, write notes and save filters, and admins also manage **Users**, **Encryption**, **Preferences** and the **Activity log** under **Settings**. See [Security](../README.md#security).
 
 ## 7. Share the result
 
