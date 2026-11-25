@@ -63,9 +63,12 @@ public final class TShark {
     /** Feeds the capture to tshark's standard input: the capture stays where it is, and no copy fills /tmp. A reader that stops early simply ends the feed. */
     static Process pump(Process p, Path capture) {
         Thread t = new Thread(() -> {
-            try (java.io.InputStream in = Vault.in(capture); java.io.OutputStream out = p.getOutputStream()) {
+            try (java.io.OutputStream out = p.getOutputStream(); java.io.InputStream in = Vault.in(capture)) {
                 in.transferTo(out);
-            } catch (IOException ignored) { }
+            } catch (IOException e) {
+                // a capture that cannot be read, such as one locked or changed by hand: stop tshark rather than leave it waiting for input
+                p.destroyForcibly();
+            }
         }, "tshark-feed");
         t.setDaemon(true);
         t.start();

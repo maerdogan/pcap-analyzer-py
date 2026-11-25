@@ -197,7 +197,8 @@ final class Vault {
         boolean enc = Arrays.equals(raw.readNBytes(4), MAGIC);
         raw.reset();
         if (!enc) {
-            if (!isSetUp()) return raw;
+            // only the data folder must be encrypted; a file elsewhere, such as an upload being prepared, is read as it is
+            if (!isSetUp() || !file.toAbsolutePath().normalize().startsWith(Settings.workdir().toAbsolutePath().normalize())) return raw;
             raw.close();
             alert(file, "The file is not encrypted. It was put or changed by hand.");
             throw new IOException("unencrypted file: " + file.getFileName());
