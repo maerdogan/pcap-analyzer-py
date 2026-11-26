@@ -39,7 +39,9 @@ final class Ldap {
     /** Problem with the settings as an English UI text, or null. An empty bind password keeps the saved one. */
     static String problem(Map<String, String> s) {
         String url = s.getOrDefault("url", "");
-        if (!url.isEmpty() && !url.matches("ldaps?://[A-Za-z0-9.\\-\\[\\]:]+(:\\d{1,5})?/?")) return "The LDAP address must look like ldaps://dc.example.com:636 or ldap://dc.example.com:389.";
+        // the port is optional: ldaps:// defaults to 636 and ldap:// to 389, but a directory may listen anywhere
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("ldaps?://(?:[A-Za-z0-9.\\-]+|\\[[0-9A-Fa-f:.]+\\])(?::(\\d{1,5}))?/?").matcher(url);
+        if (!url.isEmpty() && (!m.matches() || (m.group(1) != null && (Integer.parseInt(m.group(1)) < 1 || Integer.parseInt(m.group(1)) > 65535)))) return "The LDAP address must look like ldaps://dc.example.com or ldap://dc.example.com, with a port after a colon if it is not the usual one (1 to 65535).";
         if (!s.getOrDefault("user_filter", "").contains("{0}")) return "The user filter must contain {0}, where the user name goes, such as (sAMAccountName={0}).";
         return null;
     }

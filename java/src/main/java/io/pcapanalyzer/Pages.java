@@ -1532,7 +1532,8 @@ public final class Pages {
         sb.append("</tbody></table></div></section>");
         sb.append("<section class=\"panel\"><h2>LDAP</h2><p class=\"muted\">").append(esc(c.t("Users marked LDAP sign in with their directory password. The service account only finds them; it needs read access.")))
           .append("</p><form method=\"post\" action=\"").append(c.path()).append("/users/ldap\">").append(csrf).append("<div class=\"fields\">")
-          .append("<label class=\"wide\">").append(esc(c.t("Server address"))).append(" <input name=\"url\" placeholder=\"ldaps://dc.example.com:636\" value=\"").append(esc(ls.get("url"))).append("\"></label>")
+          .append("<label class=\"wide\">").append(esc(c.t("Server address"))).append(" <input name=\"url\" placeholder=\"ldaps://dc.example.com\" value=\"").append(esc(ls.get("url"))).append("\"></label>")
+          .append("<p class=\"hint wide\">").append(esc(c.t("The port is optional: without it ldaps:// uses 636 and ldap:// uses 389."))).append("</p>")
           .append("<label>").append(esc(c.t("Service account DN"))).append(" <input name=\"bind_dn\" placeholder=\"cn=svc-pcap,ou=service,dc=example,dc=com\" value=\"").append(esc(ls.get("bind_dn"))).append("\"></label>")
           .append("<label>").append(esc(c.t("Service account password"))).append(" <input type=\"password\" name=\"bind_password\" autocomplete=\"new-password\" placeholder=\"")
           .append(esc(String.valueOf(ls.get("bind_password")).isEmpty() ? "" : c.t("saved; leave empty to keep"))).append("\"></label>")
