@@ -1183,5 +1183,13 @@
   "Users pick from the checked models on a capture's AI analysis. The default model is always offered.": "Benutzer wählen in der KI-Analyse eines Mitschnitts aus den markierten Modellen. Das Standardmodell wird immer angeboten.",
   "This model is not offered. Choose one of the listed models.": "Dieses Modell wird nicht angeboten. Wählen Sie eines der aufgeführten Modelle.",
   "Stop the analysis": "Analyse stoppen",
-  "The analysis was stopped.": "Die Analyse wurde gestoppt."
+  "The analysis was stopped.": "Die Analyse wurde gestoppt.",
+  "Privacy": "Datenschutz",
+  "Privacy hides IP addresses, card numbers, national ID numbers, e-mail addresses and IBANs. Clear it only for a model inside your network.": "Datenschutz verbirgt IP-Adressen, Kartennummern, Ausweisnummern, E-Mail-Adressen und IBANs. Nur für ein Modell im eigenen Netz abwählen.",
+  "Refreshing in {n} s": "Aktualisierung in {n} s",
+  "Ask a follow-up question": "Folgefrage stellen",
+  "Ask": "Fragen",
+  "The analysis and the earlier answers go along with your question, as text.": "Die Analyse und die früheren Antworten gehen als Text mit Ihrer Frage mit.",
+  "Ask the AI for the analysis first.": "Fragen Sie die KI zuerst nach der Analyse.",
+  "Write your question.": "Schreiben Sie Ihre Frage."
 }

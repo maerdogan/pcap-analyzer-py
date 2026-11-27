@@ -918,8 +918,12 @@ public class AppServlet extends HttpServlet {
                 } else if (p[1].equals("ai")) {
                     Map<String, Object> r = read(dir(p[0]).resolve("result.json"));
                     if (r == null) { res.sendError(404); return; }
-                    String problem = Ai.start(p[0], Ai.prompt(r, ctx(req).lang()), req.getParameter("model"));
+                    String problem = Ai.start(p[0], Ai.prompt(r, ctx(req).lang(), req.getParameter("privacy") != null), req.getParameter("model"));
                     if (problem == null) Records.audit("ai_opinion", req.getRemoteAddr(), p[0]);
+                    res.sendRedirect(req.getContextPath() + "/a/" + p[0] + "?tab=ai" + (problem == null ? "" : "&problem=1"));
+                } else if (p[1].equals("ai-ask")) {
+                    String problem = Ai.followUp(p[0], req.getParameter("question"), req.getParameter("model"), req.getParameter("privacy") != null);
+                    if (problem == null) Records.audit("ai_followup", req.getRemoteAddr(), p[0]);
                     res.sendRedirect(req.getContextPath() + "/a/" + p[0] + "?tab=ai" + (problem == null ? "" : "&problem=1"));
                 } else if (p[1].equals("ai-stop")) {
                     if (Ai.stop(p[0])) Records.audit("ai_stopped", req.getRemoteAddr(), p[0]);

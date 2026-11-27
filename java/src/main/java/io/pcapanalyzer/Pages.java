@@ -1097,7 +1097,7 @@ public final class Pages {
         StringBuilder sb = new StringBuilder("<section class=\"panel\"><h2>" + esc(c.t("AI analysis")) + "</h2>");
         String model = Ai.model();
         Map<String, Object> op = Ai.opinion(id);
-        if (Ai.running(id)) sb.append("<p class=\"hint\">").append(esc(c.t("{model} is reading the analysis. This can take a minute.", "model", model))).append(" <a href=\"").append(c.path()).append("/a/").append(id).append("?tab=ai\">").append(esc(c.t("Refresh"))).append("</a></p>");
+        if (Ai.running(id)) sb.append("<p class=\"hint\">").append(esc(c.t("{model} is reading the analysis. This can take a minute.", "model", model))).append(" <a href=\"").append(c.path()).append("/a/").append(id).append("?tab=ai\">").append(esc(c.t("Refresh"))).append("</a> <span class=\"muted\" data-countdown=\"10\" data-label=\"").append(esc(c.t("Refreshing in {n} s"))).append("\"></span></p>");
             if (Ai.running(id) && Users.can(Users.Role.ANALYST)) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/ai-stop\">").append(csrf(c)).append("<button class=\"danger\">").append(esc(c.t("Stop the analysis"))).append("</button></form>");
         else {
             if (Ai.failure(id) != null) sb.append("<p class=\"warn\" role=\"alert\">").append(esc(c.t(Ai.failure(id)))).append("</p>");
@@ -1110,7 +1110,7 @@ public final class Pages {
                     for (String n : g.getValue()) if (!n.equals(model)) sb.append("<option value=\"").append(esc(n)).append("\">").append(esc(n)).append("</option>");
                     sb.append("</optgroup>");
                 }
-                sb.append("</select></label> <button class=\"primary\">").append(esc(c.t(op == null ? "Ask the AI" : "Ask again"))).append("</button></form><p class=\"hint\">").append(esc(c.t("The choice applies to this request only. The default is set in Settings, AI."))).append("</p>");
+                sb.append("</select></label> <label class=\"check\"><input type=\"checkbox\" name=\"privacy\" value=\"1\" checked> ").append(esc(c.t("Privacy"))).append("</label> <button class=\"primary\">").append(esc(c.t(op == null ? "Ask the AI" : "Ask again"))).append("</button></form><p class=\"hint\">").append(esc(c.t("The choice applies to this request only. The default is set in Settings, AI.") + " " + c.t("Privacy hides IP addresses, card numbers, national ID numbers, e-mail addresses and IBANs. Clear it only for a model inside your network."))).append("</p>");
             }
             sb.append("<p class=\"hint\">").append(esc(c.t("Only the figures and findings of this analysis are sent to the model, never packet contents."))).append("</p>");
             // Sorulmadan once modele tam olarak ne gidecegi gosterilir
@@ -1120,6 +1120,22 @@ public final class Pages {
             sb.append("<p class=\"muted\">").append(esc(c.t("{model}, {when}", "model", op.get("model"), "when", Fmt.when(Analysis.dn(op.get("created")))))).append("</p><pre class=\"command\" style=\"white-space:pre-wrap\">").append(esc(String.valueOf(op.get("text")))).append("</pre>");
             // Eski cevaplarda soru saklanmamis olabilir; o zaman gosterilmez
             if (op.get("prompt") instanceof String asked && !asked.isEmpty()) sb.append(promptBlock(c, "ai-prompt-asked", c.t("The question this answer was given to"), asked));
+            if (op.get("followups") instanceof List<?> fl)
+                for (Object o : fl) if (o instanceof Map<?, ?> f)
+                    sb.append("<h3>").append(esc(String.valueOf(f.get("question")))).append("</h3><p class=\"muted\">").append(esc(c.t("{model}, {when}", "model", f.get("model"), "when", Fmt.when(Analysis.dn(f.get("created"))))))
+                      .append("</p><pre class=\"command\" style=\"white-space:pre-wrap\">").append(esc(String.valueOf(f.get("answer")))).append("</pre>");
+            if (!Ai.running(id) && Users.can(Users.Role.ANALYST) && !model.isEmpty() && op.get("prompt") instanceof String bp && !bp.isEmpty()) {
+                sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/ai-ask\">").append(csrf(c)).append("<label class=\"wide\">").append(esc(c.t("Ask a follow-up question")))
+                  .append(" <textarea name=\"question\" rows=\"3\" maxlength=\"2000\" required></textarea></label><label>").append(esc(c.t("Model for this analysis"))).append(" <select name=\"model\"><option value=\"").append(esc(model)).append("\" selected>")
+                  .append(esc(model)).append(" (").append(esc(c.t("default"))).append(")</option>");
+                for (Map.Entry<String, List<String>> g : Ai.offeredModels().entrySet()) {
+                    sb.append("<optgroup label=\"").append(esc(g.getKey())).append("\">");
+                    for (String n : g.getValue()) if (!n.equals(model)) sb.append("<option value=\"").append(esc(n)).append("\">").append(esc(n)).append("</option>");
+                    sb.append("</optgroup>");
+                }
+                sb.append("</select></label> <label class=\"check\"><input type=\"checkbox\" name=\"privacy\" value=\"1\" checked> ").append(esc(c.t("Privacy"))).append("</label> <button class=\"primary\">").append(esc(c.t("Ask"))).append("</button></form><p class=\"hint\">")
+                  .append(esc(c.t("The analysis and the earlier answers go along with your question, as text."))).append("</p>");
+            }
         }
         return sb.append("</section>").toString();
     }

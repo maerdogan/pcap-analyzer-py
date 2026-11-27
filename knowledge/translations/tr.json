@@ -818,5 +818,13 @@
   "Users pick from the checked models on a capture's AI analysis. The default model is always offered.": "Kullanıcılar bir yakalamanın YZ Analizi'nde işaretli modeller arasından seçer. Varsayılan model her zaman sunulur.",
   "This model is not offered. Choose one of the listed models.": "Bu model sunulmuyor. Listelenen modellerden birini seçin.",
   "Stop the analysis": "Analizi durdur",
-  "The analysis was stopped.": "Analiz durduruldu."
+  "The analysis was stopped.": "Analiz durduruldu.",
+  "Privacy": "Gizlilik",
+  "Privacy hides IP addresses, card numbers, national ID numbers, e-mail addresses and IBANs. Clear it only for a model inside your network.": "Gizlilik IP adreslerini, kart numaralarını, kimlik numaralarını, e-posta adreslerini ve IBAN'ları gizler. Yalnızca ağınızın içindeki bir model için kapatın.",
+  "Refreshing in {n} s": "{n} sn içinde yenilenecek",
+  "Ask a follow-up question": "Ek soru sor",
+  "Ask": "Sor",
+  "The analysis and the earlier answers go along with your question, as text.": "Analiz ve önceki cevaplar, sorunuzla birlikte metin olarak gider.",
+  "Ask the AI for the analysis first.": "Önce yapay zekadan analizi isteyin.",
+  "Write your question.": "Sorunuzu yazın."
 }

@@ -24,7 +24,7 @@ export CATALINA_OPTS="-Xms256m -Xmx1g"
 export PCAP_ANALYZER_WORKDIR=/var/lib/pcap-analyzer
 ```
 
-Sign in with HTTP Basic as `admin`. Open `/pcap-analyzer/`.
+Open `/pcap-analyzer/` and sign in on the sign-in page as `admin` (password `admin` on the first start, then a new one must be chosen).
 
 ## Settings
 
@@ -75,12 +75,10 @@ A connection that has closed and stayed quiet for five minutes of capture time i
 
 ## Not ported
 
-HTTP/3 requests as rows in the request lists (QUIC connections and their stream counts are shown), the Python `serve` and `hash-password` commands (Tomcat serves the pages, and `set-password` replaces `hash-password`), and the Python version's job queue page (uploads through the web page are analyzed while the request waits; the REST API runs them as jobs).
+HTTP/3 requests as rows in the request lists (QUIC connections and their stream counts are shown), the Python `serve` and `hash-password` commands (Tomcat serves the pages, and `set-password` replaces `hash-password`), and the Python version's job queue page (uploads through the web page are analyzed while the request waits; the REST API runs them as jobs). Also not ported: parts-based reading of captures near 1 GB (the Java version holds one analysis in memory, so give Tomcat enough heap) and expert-information views other than the issue list.
 
 ## Notes
 
 - Verified against tshark's own request counts on real captures, and on synthetic captures with HTTP/2, SMTP, FTP, SIP and RTP. GeoIP lookups and LDAP, Kerberos, SMB2, Kafka, DCERPC, MQTT and AMQP response times follow the Python logic but were not tried on real traffic.
 - Texts and explanations are exported from the Python project's knowledge base.
 
-
-Parts-based reading of captures near 1 GB (the Java version holds one analysis in memory, so give Tomcat enough heap), expert-information views other than the issue list, and the Python command line.

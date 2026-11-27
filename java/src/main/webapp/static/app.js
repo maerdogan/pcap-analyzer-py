@@ -257,6 +257,13 @@
     setupGrids(root);
     setupCharts(root);
     root.querySelectorAll("[data-submit]").forEach((el) => el.addEventListener("change", () => el.form.submit()));
+    // data-countdown: counts down in seconds, shows data-label with {n}, and loads the page again at zero
+    root.querySelectorAll("[data-countdown]").forEach((el) => {
+      let n = parseInt(el.dataset.countdown, 10) || 10;
+      const show = () => { el.textContent = (el.dataset.label || "{n}").replace("{n}", n); };
+      show();
+      const t = setInterval(() => { n -= 1; if (n <= 0) { clearInterval(t); location.reload(); } else show(); }, 1000);
+    });
     // data-dialog dugmesi adi verilen pencereyi (dialog) acar; Kapat dugmesi ve Esc onu kapatir
     root.querySelectorAll("[data-dialog]").forEach((b) => b.addEventListener("click", () => {
       const d = document.getElementById(b.dataset.dialog);
