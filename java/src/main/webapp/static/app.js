@@ -257,6 +257,11 @@
     setupGrids(root);
     setupCharts(root);
     root.querySelectorAll("[data-submit]").forEach((el) => el.addEventListener("change", () => el.form.submit()));
+    // data-dialog dugmesi adi verilen pencereyi (dialog) acar; Kapat dugmesi ve Esc onu kapatir
+    root.querySelectorAll("[data-dialog]").forEach((b) => b.addEventListener("click", () => {
+      const d = document.getElementById(b.dataset.dialog);
+      if (d && d.showModal) d.showModal();
+    }));
     // A most called flow fills the inspect filter with its two ends and runs it; other fields are cleared so the flow alone decides.
     root.querySelectorAll(".flow-pick").forEach((b) => b.addEventListener("click", () => {
       const form = document.getElementById("f");

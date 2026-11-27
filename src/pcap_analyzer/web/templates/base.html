@@ -31,12 +31,13 @@
         <a href="/trend" {% if section == "trend" %}aria-current="page"{% endif %}>{{ ui.icon("trend") }}<span>{{ _("Trend") }}</span></a>
         <a href="/capture-guide" {% if section == "guide" %}aria-current="page"{% endif %}>{{ ui.icon("guide") }}<span>{{ _("Capture guide") }}</span></a>
         {% set who = me() %}
-        <details class="side-sub" {% if section in ("preferences", "users", "security", "password", "audit") %}open{% endif %}>
+        <details class="side-sub" {% if section in ("preferences", "users", "security", "ai", "password", "audit") %}open{% endif %}>
           <summary>{{ ui.icon("preferences") }}<span>{{ _("Settings") }}</span></summary>
           {% if who and who.can("admin") %}
           <a href="/preferences" {% if section == "preferences" %}aria-current="page"{% endif %}><span>{{ _("Preferences") }}</span></a>
           <a href="/users" {% if section == "users" %}aria-current="page"{% endif %}><span>{{ _("Users") }}</span></a>
           <a href="/security" {% if section == "security" %}aria-current="page"{% endif %}><span>{{ _("Encryption") }}</span></a>
+          <a href="/ai" {% if section == "ai" %}aria-current="page"{% endif %}><span>{{ _("AI") }}</span></a>
           {% endif %}
           <a href="/password" {% if section == "password" %}aria-current="page"{% endif %}><span>{{ _("Password") }}</span></a>
           {% if who and who.can("admin") %}

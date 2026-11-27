@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}{{ _("AI") }}{% endblock %}
+{% block main %}
+<header class="page-head"><div><h1>{{ _("AI") }}</h1><p class="muted">{{ _("The AI tool the app uses for analysis in the background, and the language model it connects to.") }}</p></div></header>
+{% if message %}<p class="ok" role="status">{{ message }}</p>{% endif %}
+{% if error %}<p class="warn" role="alert">{{ error }}</p>{% endif %}
+<section class="panel">
+  <form method="post" action="/ai">
+    <input type="hidden" name="csrf_token" value="{{ form_token() }}">
+    <div class="fields">
+      <label>{{ _("AI tool") }} <select id="tool" name="tool">{% for k, v in tools.items() %}<option value="{{ k }}" {% if k == tool %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></label>
+      <label>{{ _("Model") }} <select id="model" name="model">
+        <option value="">{{ _("Keep the model in the configuration") }}{% if chosen %} ({{ chosen }}){% endif %}</option>
+        {% for provider, names in providers %}<optgroup label="{{ provider }}">{% for n in names %}<option value="{{ n }}" {% if n == chosen %}selected{% endif %}>{{ n }}</option>{% endfor %}</optgroup>{% endfor %}
+      </select></label>
+      <label class="wide">{{ _("Configuration (JSON)") }} <textarea id="config" name="config" rows="14" spellcheck="false">{{ config }}</textarea></label>
+    </div>
+    <p class="hint">{% if version %}{{ _("opencode {version} is installed.", version=version) }}{% else %}{{ _("opencode is not installed on this host. Install it with: npm install -g opencode-ai") }}{% endif %}
+      {{ _("The models are those of the providers connected on this host. Connect one with: opencode auth login. A model chosen here is written to the \"model\" key.") }}</p>
+    <button class="primary">{{ _("Save AI settings") }}</button>
+  </form>
+</section>
+{% endblock %}

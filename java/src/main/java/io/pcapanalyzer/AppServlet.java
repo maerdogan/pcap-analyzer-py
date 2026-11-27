@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  * GET  /api/a/{id}/{timeline|statuses|histogram|urls|connections|result}
  * POST /language
  */
-@WebServlet(urlPatterns = {"", "/upload", "/language", "/a/*", "/api/a/*", "/analysis/*", "/api/analysis/*", "/export/*", "/capture-guide", "/preferences", "/audit", "/trend", "/compare", "/tokens", "/tokens/*", "/filters", "/filters/*", "/api/v1/*", "/password", "/users", "/users/*", "/security", "/security/*"})
+@WebServlet(urlPatterns = {"", "/upload", "/language", "/a/*", "/api/a/*", "/analysis/*", "/api/analysis/*", "/export/*", "/capture-guide", "/preferences", "/audit", "/trend", "/compare", "/tokens", "/tokens/*", "/filters", "/filters/*", "/api/v1/*", "/password", "/users", "/users/*", "/security", "/security/*", "/ai"})
 @MultipartConfig(maxFileSize = Settings.MAX_UPLOAD, maxRequestSize = Settings.MAX_UPLOAD + (1 << 20), fileSizeThreshold = 1 << 20)
 public class AppServlet extends HttpServlet {
     private static final Pattern ID = Pattern.compile("[0-9a-f]{16}");
@@ -267,6 +267,7 @@ public class AppServlet extends HttpServlet {
             case "/preferences" -> preferences(req, res, c, null, null);
             case "/users" -> users(res, c, null, null);
             case "/security" -> security(res, c, null, null);
+            case "/ai" -> ai(res, c, null, null, null, null);
             case "/audit" -> {
                 String event = Inspect.str(req.getParameterMap(), "event");
                 html(res, 200, Pages.layout(c, c.t("Activity log"), "audit", "", Pages.auditPage(c, Records.readAudit(event, 500), event), recent(), null));
@@ -457,6 +458,10 @@ public class AppServlet extends HttpServlet {
         res.sendRedirect(req.getContextPath() + "/users");
     }
 
+    private void ai(HttpServletResponse res, Pages.Ctx c, String message, String error, String text, String tool) throws IOException {
+        html(res, error == null ? 200 : 422, Pages.layout(c, c.t("AI"), "ai", "", Pages.aiPage(c, tool, text, message, error), recent(), null));
+    }
+
     private void preferences(HttpServletRequest req, HttpServletResponse res, Pages.Ctx c, String newToken, String error) throws IOException {
         Map<String, Object> limits = Records.thresholds();
         StringBuilder targets = new StringBuilder();
@@ -558,7 +563,7 @@ public class AppServlet extends HttpServlet {
         String title = (String) meta.get("filename"), nav = null, main = null;
         if (parts.length == 1) {
             String tab = Optional.ofNullable(req.getParameter("tab")).orElse("overview");
-            if (!List.of("urls", "connections", "issues", "hosts", "backends", "tls", "stats").contains(tab)) tab = "overview";
+            if (!List.of("urls", "connections", "issues", "hosts", "backends", "tls", "stats", "ai").contains(tab)) tab = "overview";
             main = Pages.analysis(c, meta, result, tab, notes(id), tab.equals("overview") ? drift(c, id, result) : null, kept(id), flt(req), tab.equals("stats") ? Views.sequences(result, details(id)) : List.of());
             nav = Pages.capnav(c, id, tab, issueCount);
         } else if (parts.length == 3 && parts[1].equals("issue")) {
@@ -823,6 +828,18 @@ public class AppServlet extends HttpServlet {
             case "/upload" -> upload(req, res);
             case "/users" -> usersPost(req, res, info);
             case "/security" -> securityPost(req, res, info);
+            case "/ai" -> {
+                Pages.Ctx c = ctx(req);
+                String tool = param(req, "tool"), config = Optional.ofNullable(req.getParameter("config")).orElse("");
+                String problem = Ai.problem(tool, config);
+                if (problem != null) { ai(res, c, null, c.t(problem), config, tool); return; }
+                // allowed_set formda varsa isaretli modeller kaydedilir (hicbiri isaretli degilse yalnizca varsayilan model kalir)
+                List<String> allowed = req.getParameter("allowed_set") == null ? Ai.allowed()
+                    : new ArrayList<>(Arrays.asList(Optional.ofNullable(req.getParameterValues("allowed")).orElse(new String[0])));
+                Ai.save(tool, config, param(req, "model").strip(), allowed);
+                Records.audit("ai_settings", req.getRemoteAddr(), tool);
+                ai(res, c, c.t("AI settings saved."), null, null, null);
+            }
             case "/password" -> {
                 Pages.Ctx c = ctx(req);
                 Users.Current me = Users.current();
@@ -898,6 +915,15 @@ public class AppServlet extends HttpServlet {
                     Records.setBaseline(p[0]);
                     Records.audit("baseline", req.getRemoteAddr(), p[0]);
                     res.sendRedirect(req.getContextPath() + "/a/" + p[0]);
+                } else if (p[1].equals("ai")) {
+                    Map<String, Object> r = read(dir(p[0]).resolve("result.json"));
+                    if (r == null) { res.sendError(404); return; }
+                    String problem = Ai.start(p[0], Ai.prompt(r, ctx(req).lang()), req.getParameter("model"));
+                    if (problem == null) Records.audit("ai_opinion", req.getRemoteAddr(), p[0]);
+                    res.sendRedirect(req.getContextPath() + "/a/" + p[0] + "?tab=ai" + (problem == null ? "" : "&problem=1"));
+                } else if (p[1].equals("ai-stop")) {
+                    if (Ai.stop(p[0])) Records.audit("ai_stopped", req.getRemoteAddr(), p[0]);
+                    res.sendRedirect(req.getContextPath() + "/a/" + p[0] + "?tab=ai");
                 } else if (p[1].equals("delete")) {
                     if (!mayDelete(p[0])) { res.sendError(403, "Only the one who uploaded it, or an admin, can delete this capture."); return; }
                     Records.audit("delete", req.getRemoteAddr(), p[0]);

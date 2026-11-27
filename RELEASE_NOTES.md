@@ -20,6 +20,7 @@ All changes made on the same day are one minor version.
 - Encryption at rest, the design of the Java edition: every file in the data folder is encrypted with its own AES-256-GCM key in 1 MiB segments, keys are wrapped with RSA-2048, the data key is sealed with a 16-character master key and the master key with the setup admin's password. Analysis databases use DuckDB's own encryption where its httpfs extension is installed, and are otherwise encrypted whole by the vault. After a restart nothing opens until the setup admin signs in; others see a waiting page. The setup admin sets the master key on Settings → Encryption at the first sign-in, which encrypts what is already there, and can show and change it later.
 - Files changed, cut, left plain or brought from another install are found when read and by an hourly check, and admins see a notice on every page.
 - The REST API takes a user's name and password as well as tokens, and a token can be made for one group.
+- Settings → AI, for admins: the AI tool the app uses for analysis in the background (opencode for now) and its JSON configuration. The model is picked from the models of the providers connected on this host (`opencode models`) and written to the configuration's "model" key. The settings are kept encrypted, since they may hold keys; `PCAP_ANALYZER_OPENCODE` names the opencode program when it is not on the PATH.
 
 ### Changed
 

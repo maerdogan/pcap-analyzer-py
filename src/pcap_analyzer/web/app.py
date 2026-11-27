@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from .. import __version__, capture_guide, causes, compare, display_filters, engine, exports, knowledge, records, reports, services, split, stats, store, tshark, vault
 from ..config import Settings
-from . import directory, saved
+from . import ai, directory, saved
 from .auth import Auth
 from .jobs import Jobs, QueueFull
 from .users import MIN_PASSWORD, ROLES, Current, Users, password_problem
@@ -31,14 +31,14 @@ COOKIE = "pcap_session"
 OPEN_PATHS = ("/login", "/language", "/healthz", "/static/")
 CHANGE_PATHS = ("/password", "/logout")  # the only pages open until the first password is changed
 SETUP_PATHS = ("/security", "/password", "/logout")  # and until the setup admin has set the master key
-ADMIN_PATHS = ("/preferences", "/audit", "/tokens", "/users", "/security")
+ADMIN_PATHS = ("/preferences", "/audit", "/tokens", "/users", "/security", "/ai")
 ANALYSIS_PATH = re.compile(r"/(?:a|export|api/a)/([^/]+)")
 API_ANALYSIS_PATH = re.compile(r"/api/v1/analyses/([^/]+)")
 JOB_PATH = re.compile(r"/jobs/([^/]+)")
 API_JOB_PATH = re.compile(r"/api/v1/jobs/([^/]+)")
 AUDIT_EVENTS = ("login", "login_failed", "logout", "password_changed", "upload", "delete", "export", "follow", "notes", "baseline", "thresholds",
                 "token_created", "token_revoked", "api_upload", "api_delete", "expired", "user_added", "user_changed", "user_password", "user_deleted",
-                "group_added", "group_changed", "group_deleted", "ldap_settings", "vault_set_up", "master_key_changed", "master_key_shown", "file_tampered")
+                "group_added", "group_changed", "group_deleted", "ldap_settings", "ai_settings", "vault_set_up", "master_key_changed", "master_key_shown", "file_tampered")
 CHUNK = 1 << 20
 KEY_LIMIT = CHUNK
 KEYLOG_LIMIT = 512 * CHUNK  # NetScaler writes the keys of every session it serves, about 60 MB in four busy minutes
@@ -1064,6 +1064,29 @@ def create_app(settings=None, https=False):
             else:
                 _bad(knowledge.t("Unknown data set."), 404)
         return data
+
+    # ---- AI tool for the analysis in the background: admins only, which the guard checks
+
+    def ai_page(request, message=None, error=None, text=None, tool=None, status_code=None):
+        saved_ai = ai.load(settings)
+        names = ai.models(settings)
+        cfg = text if text is not None else ai.config_text(settings)
+        chosen = saved_ai["config"].get("model", "")
+        return page(request, "ai.html", status_code or (400 if error else 200), section="ai", tools=ai.TOOLS, tool=tool or saved_ai["tool"], config=cfg,
+                    version=ai.version(), providers=ai.by_provider(names), chosen=chosen, message=message, error=error)
+
+    @app.get("/ai", response_class=HTMLResponse)
+    def ai_get(request: Request):
+        return ai_page(request)
+
+    @app.post("/ai", response_class=HTMLResponse)
+    def ai_save(request: Request, tool: str = Form("opencode"), config: str = Form(""), model: str = Form("")):
+        problem = ai.problem(tool, config)
+        if problem:
+            return ai_page(request, error=knowledge.t(problem), text=config, tool=tool)
+        ai.save(settings, tool, config, model.strip())
+        log(request, "ai_settings", tool)
+        return ai_page(request, message=knowledge.t("AI settings saved."))
 
     # ---- users, groups and LDAP: admins only, which the guard checks
 

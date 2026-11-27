@@ -49,6 +49,7 @@ public final class Pages {
             Map.entry("users", "<circle cx=\"9\" cy=\"8\" r=\"3.5\"/><path d=\"M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5\"/><path d=\"M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.8c2 .7 3.2 2.4 3.6 5.2\"/>"),
             Map.entry("password", "<rect x=\"4\" y=\"10\" width=\"16\" height=\"10\" rx=\"2\"/><path d=\"M8 10V7a4 4 0 0 1 8 0v3\"/>"),
             Map.entry("preferences", "<path d=\"M4 7h10M18 7h2M4 17h4M12 17h8\"/><circle cx=\"16\" cy=\"7\" r=\"2\"/><circle cx=\"10\" cy=\"17\" r=\"2\"/>"),
+            Map.entry("ai", "<path d=\"M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z\"/><path d=\"M18 16l.8 2.2L21 19l-2.2.8L18 22l-.8-2.2L15 19l2.2-.8z\"/>"),
             Map.entry("stats", "<path d=\"M4 20h16M7 16v-5M12 16V6M17 16v-8\"/>"),
             Map.entry("menu", "<path d=\"M4 7h16M4 12h16M4 17h16\"/>"));
 
@@ -91,7 +92,7 @@ public final class Pages {
         for (String[] n : mainNav)
             sb.append("<a href=\"").append(p).append(n[1]).append("\"").append(section.equals(n[0]) ? " aria-current=\"page\"" : "").append(">").append(icon(n[0])).append("<span>").append(esc(c.t(n[2]))).append("</span></a>");
         String[][] settingsNav = admin
-            ? new String[][] {{"preferences", "/preferences", "Preferences"}, {"users", "/users", "Users"}, {"security", "/security", "Encryption"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}}
+            ? new String[][] {{"preferences", "/preferences", "Preferences"}, {"users", "/users", "Users"}, {"security", "/security", "Encryption"}, {"ai", "/ai", "AI"}, {"password", "/password", "Password"}, {"audit", "/audit", "Activity log"}}
             : new String[][] {{"password", "/password", "Password"}};
         boolean inSettings = false;
         for (String[] n : settingsNav) inSettings |= section.equals(n[0]);
@@ -139,7 +140,7 @@ public final class Pages {
 
     public static String capnav(Ctx c, String id, String current, long issueCount) {
         String[][] tabs = {{"overview", "", "Overview"}, {"issues", "?tab=issues", "Issues"}, {"urls", "?tab=urls", "URLs"}, {"connections", "?tab=connections", "Connections"},
-                {"hosts", "?tab=hosts", "Hosts"}, {"backends", "?tab=backends", "Servers"}, {"tls", "?tab=tls", "TLS"}, {"stats", "?tab=stats", "Statistics"}, {"inspect", "/inspect", "Inspect traffic"}};
+                {"hosts", "?tab=hosts", "Hosts"}, {"backends", "?tab=backends", "Servers"}, {"tls", "?tab=tls", "TLS"}, {"stats", "?tab=stats", "Statistics"}, {"ai", "?tab=ai", "AI analysis"}, {"inspect", "/inspect", "Inspect traffic"}};
         StringBuilder sb = new StringBuilder("<nav class=\"side-group views\" aria-label=\"" + esc(c.t("Capture views")) + "\"><p class=\"side-label\" aria-hidden=\"true\">"
                 + esc(c.t("Capture views")) + "</p>\n");
         for (String[] t : tabs)
@@ -332,7 +333,7 @@ public final class Pages {
     public static String analysis(Ctx c, Map<String, Object> meta, Map<String, Object> r, String tab, Map<String, Object> notes, String drift, boolean kept, String flt, List<Map<String, Object>> seqs) {
         String id = (String) meta.get("id");
         String filename = (String) meta.get("filename");
-        String label = switch (tab) { case "urls" -> "URLs"; case "connections" -> "Connections"; case "issues" -> "Issues"; case "hosts" -> "Hosts"; case "backends" -> "Servers"; case "tls" -> "TLS"; case "stats" -> "Statistics"; default -> "Overview"; };
+        String label = switch (tab) { case "urls" -> "URLs"; case "connections" -> "Connections"; case "issues" -> "Issues"; case "hosts" -> "Hosts"; case "backends" -> "Servers"; case "tls" -> "TLS"; case "stats" -> "Statistics"; case "ai" -> "AI analysis"; default -> "Overview"; };
         String heading = label.equals("URLs") || label.equals("TLS") ? label : c.t(label);
         Map<String, Object> http = (Map<String, Object>) r.get("http"), tcp = (Map<String, Object>) r.get("tcp");
         long requests = ((Number) http.get("requests")).longValue();
@@ -357,7 +358,9 @@ public final class Pages {
         sb.append("<a class=\"button primary\" href=\"").append(c.path()).append("/a/").append(id).append("/inspect\">").append(esc(c.t("Inspect traffic"))).append("</a></div></div>\n");
         if (tab.equals("overview") && requests > 0) sb.append(score(c, http)).append(metrics(c, http));
         sb.append("</header>\n<div id=\"tab\">");
-        if (tab.equals("issues")) {
+        if (tab.equals("ai")) {
+            sb.append(aiTab(c, id, r));
+        } else if (tab.equals("issues")) {
             sb.append(issuesTab(c, id, (List<Map<String, Object>>) r.get("issues")));
         } else if (tab.equals("hosts")) {
             sb.append("<p class=\"hint\">").append(esc(c.t("Named from the HTTP Host header or TLS SNI. The server address is used when neither is visible."))).append("</p>\n");
@@ -1046,6 +1049,93 @@ public final class Pages {
         }
         sb.append("<form method=\"post\" action=\"").append(c.path()).append("/tokens\" class=\"inline\">").append(csrf(c)).append("<label>").append(esc(c.t("Name")))
           .append(" <input id=\"tokenName\" name=\"name\" required maxlength=\"80\"></label><button>").append(esc(c.t("Create token"))).append("</button></form></section>");
+        return sb.toString();
+    }
+
+    public static String aiPage(Ctx c, String toolIn, String textIn, String message, String error) {
+        Map<String, Object> saved = Ai.load();
+        String tool = toolIn != null ? toolIn : String.valueOf(saved.get("tool"));
+        String text = textIn != null ? textIn : Ai.configText();
+        Object chosenObj = ((Map<?, ?>) saved.get("config")).get("model");
+        String chosen = chosenObj == null ? "" : chosenObj.toString(), version = Ai.version();
+        StringBuilder sb = new StringBuilder("<header class=\"page-head\"><div><h1>" + esc(c.t("AI")) + "</h1><p class=\"muted\">" + esc(c.t("The AI tool the app uses for analysis in the background, and the language model it connects to.")) + "</p></div></header>");
+        if (message != null) sb.append("<p class=\"ok\" role=\"status\">").append(esc(message)).append("</p>");
+        if (error != null) sb.append("<p class=\"warn\" role=\"alert\">").append(esc(error)).append("</p>");
+        sb.append("<section class=\"panel\"><form method=\"post\" action=\"").append(c.path()).append("/ai\">").append(csrf(c)).append("<div class=\"fields\"><label>").append(esc(c.t("AI tool"))).append(" <select id=\"tool\" name=\"tool\">");
+        for (Map.Entry<String, String> t : new TreeMap<>(Ai.TOOLS).entrySet())
+            sb.append("<option value=\"").append(esc(t.getKey())).append("\"").append(t.getKey().equals(tool) ? " selected" : "").append(">").append(esc(t.getValue())).append("</option>");
+        sb.append("</select></label><label>").append(esc(c.t("Model"))).append(" <select id=\"model\" name=\"model\"><option value=\"\">").append(esc(c.t("Keep the model in the configuration"))).append(chosen.isEmpty() ? "" : " (" + esc(chosen) + ")").append("</option>");
+        for (Map.Entry<String, List<String>> g : Ai.models().entrySet()) {
+            sb.append("<optgroup label=\"").append(esc(g.getKey())).append("\">");
+            for (String n : g.getValue()) sb.append("<option value=\"").append(esc(n)).append("\"").append(n.equals(chosen) ? " selected" : "").append(">").append(esc(n)).append("</option>");
+            sb.append("</optgroup>");
+        }
+        sb.append("</select></label>");
+        Map<String, List<String>> listed = Ai.models();
+        if (!listed.isEmpty()) {
+            // Yonetici hangi modellerin diger kullanicilara listelenecegini isaretler
+            List<String> allowed = Ai.allowed();
+            sb.append("<fieldset class=\"wide ai-allowed\"><legend>").append(esc(c.t("Models users can choose"))).append("</legend><input type=\"hidden\" name=\"allowed_set\" value=\"1\"><p class=\"hint\">")
+              .append(esc(c.t("Users pick from the checked models on a capture's AI analysis. The default model is always offered."))).append("</p>");
+            for (Map.Entry<String, List<String>> g : listed.entrySet()) {
+                sb.append("<p class=\"ai-provider\"><strong>").append(esc(g.getKey())).append("</strong></p><div class=\"ai-models\">");
+                for (String n : g.getValue())
+                    sb.append("<label class=\"check\"><input type=\"checkbox\" name=\"allowed\" value=\"").append(esc(n)).append("\"").append(allowed == null || allowed.contains(n) ? " checked" : "").append("> ").append(esc(n)).append("</label>");
+                sb.append("</div>");
+            }
+            sb.append("</fieldset>");
+        }
+        sb.append("<label class=\"wide\">").append(esc(c.t("Configuration (JSON)"))).append(" <textarea id=\"config\" name=\"config\" rows=\"14\" spellcheck=\"false\">").append(esc(text)).append("</textarea></label></div><p class=\"hint\">")
+          .append(esc(version != null ? c.t("opencode {version} is installed.", "version", version) : c.t("opencode is not installed on this host. Install it with: npm install -g opencode-ai"))).append(" ")
+          .append(esc(c.t("The models are those of the providers connected on this host. Connect one with: opencode auth login. A model chosen here is written to the \"model\" key.")))
+          .append("</p><button class=\"primary\">").append(esc(c.t("Save AI settings"))).append("</button></form></section>");
+        return sb.toString();
+    }
+
+    /** The AI analysis: the model chosen in Settings reads the analysis and answers; the answer is saved with the capture. */
+    static String aiTab(Ctx c, String id, Map<String, Object> r) {
+        StringBuilder sb = new StringBuilder("<section class=\"panel\"><h2>" + esc(c.t("AI analysis")) + "</h2>");
+        String model = Ai.model();
+        Map<String, Object> op = Ai.opinion(id);
+        if (Ai.running(id)) sb.append("<p class=\"hint\">").append(esc(c.t("{model} is reading the analysis. This can take a minute.", "model", model))).append(" <a href=\"").append(c.path()).append("/a/").append(id).append("?tab=ai\">").append(esc(c.t("Refresh"))).append("</a></p>");
+            if (Ai.running(id) && Users.can(Users.Role.ANALYST)) sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/ai-stop\">").append(csrf(c)).append("<button class=\"danger\">").append(esc(c.t("Stop the analysis"))).append("</button></form>");
+        else {
+            if (Ai.failure(id) != null) sb.append("<p class=\"warn\" role=\"alert\">").append(esc(c.t(Ai.failure(id)))).append("</p>");
+            if (model.isEmpty()) sb.append("<p class=\"hint\">").append(esc(c.t("Choose a model in Settings, AI first."))).append("</p>");
+            else if (Users.can(Users.Role.ANALYST)) {
+                sb.append("<form method=\"post\" action=\"").append(c.path()).append("/a/").append(id).append("/ai\">").append(csrf(c)).append("<label>").append(esc(c.t("Model for this analysis")))
+                  .append(" <select name=\"model\"><option value=\"").append(esc(model)).append("\" selected>").append(esc(model)).append(" (").append(esc(c.t("default"))).append(")</option>");
+                for (Map.Entry<String, List<String>> g : Ai.offeredModels().entrySet()) {
+                    sb.append("<optgroup label=\"").append(esc(g.getKey())).append("\">");
+                    for (String n : g.getValue()) if (!n.equals(model)) sb.append("<option value=\"").append(esc(n)).append("\">").append(esc(n)).append("</option>");
+                    sb.append("</optgroup>");
+                }
+                sb.append("</select></label> <button class=\"primary\">").append(esc(c.t(op == null ? "Ask the AI" : "Ask again"))).append("</button></form><p class=\"hint\">").append(esc(c.t("The choice applies to this request only. The default is set in Settings, AI."))).append("</p>");
+            }
+            sb.append("<p class=\"hint\">").append(esc(c.t("Only the figures and findings of this analysis are sent to the model, never packet contents."))).append("</p>");
+            // Sorulmadan once modele tam olarak ne gidecegi gosterilir
+            if (!model.isEmpty()) sb.append(promptBlock(c, "ai-prompt-next", c.t("What is sent to the AI"), Ai.prompt(r, c.lang())));
+        }
+        if (op != null) {
+            sb.append("<p class=\"muted\">").append(esc(c.t("{model}, {when}", "model", op.get("model"), "when", Fmt.when(Analysis.dn(op.get("created")))))).append("</p><pre class=\"command\" style=\"white-space:pre-wrap\">").append(esc(String.valueOf(op.get("text")))).append("</pre>");
+            // Eski cevaplarda soru saklanmamis olabilir; o zaman gosterilmez
+            if (op.get("prompt") instanceof String asked && !asked.isEmpty()) sb.append(promptBlock(c, "ai-prompt-asked", c.t("The question this answer was given to"), asked));
+        }
+        return sb.append("</section>").toString();
+    }
+
+    /** The prompt as plain text: written on the page when short, else a beginning and a button that opens the whole of it in a window. */
+    static String promptBlock(Ctx c, String dialogId, String title, String prompt) {
+        StringBuilder sb = new StringBuilder("<div class=\"ai-prompt\"><h3>").append(esc(title)).append("</h3><p class=\"hint\">")
+            .append(esc(c.t("It goes to the model as text: an instruction, then the analysis as JSON. The capture file itself is not sent."))).append(" ")
+            .append(esc(c.t("{n} characters.", "n", String.valueOf(prompt.length())))).append("</p>");
+        if (prompt.length() <= Ai.SHORT_PROMPT) return sb.append("<pre class=\"command\">").append(esc(prompt)).append("</pre></div>").toString();
+        // Uzun soru: sayfada yalnizca basi, tamami acilir pencerede
+        int cut = prompt.lastIndexOf(' ', 600);
+        sb.append("<pre class=\"command prompt-preview\">").append(esc(prompt.substring(0, cut > 300 ? cut : 600))).append(" ...</pre>")
+          .append("<button type=\"button\" data-dialog=\"").append(dialogId).append("\">").append(esc(c.t("Show the whole question"))).append("</button>")
+          .append("<dialog id=\"").append(dialogId).append("\" class=\"prompt-dialog\" aria-label=\"").append(esc(title)).append("\"><form method=\"dialog\" class=\"prompt-dialog-head\"><h3>")
+          .append(esc(title)).append("</h3><button>").append(esc(c.t("Close"))).append("</button></form><pre class=\"command\">").append(esc(prompt)).append("</pre></dialog></div>");
         return sb.toString();
     }
 

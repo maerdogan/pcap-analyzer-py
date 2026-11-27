@@ -183,7 +183,7 @@ public class AuthFilter implements Filter {
     /** The least role a request needs. Reading is open to every user; changing captures needs an analyst; settings, users, tokens and the audit log need an admin. */
     static Users.Role needed(String method, String path, String info) {
         String i = info == null ? "" : info;
-        if (path.equals("/preferences") || path.equals("/audit") || path.equals("/tokens") || path.equals("/users") || path.equals("/security")) return Users.Role.ADMIN;
+        if (path.equals("/preferences") || path.equals("/audit") || path.equals("/tokens") || path.equals("/users") || path.equals("/security") || path.equals("/ai")) return Users.Role.ADMIN;
         boolean write = !method.equals("GET") && !method.equals("HEAD");
         if (!write) return Users.Role.VIEWER;
         if (path.equals("/language") || path.equals("/password")) return Users.Role.VIEWER;

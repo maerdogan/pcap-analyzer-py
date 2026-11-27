@@ -82,4 +82,8 @@
  "A plain line was added to the activity log by hand.",
  "The database does not open with its key. It was changed by hand.",
  "The LDAP address must look like ldaps://dc.example.com or ldap://dc.example.com, with a port after a colon if it is not the usual one (1 to 65535).", "The port is optional: without it ldaps:// uses 636 and ldap:// uses 389.",
- "The user filter must contain {0}, where the user name goes, such as (sAMAccountName={0})."]
+ "The user filter must contain {0}, where the user name goes, such as (sAMAccountName={0}).",
+ "Choose one of the listed AI tools.", "The configuration is not valid JSON.",
+ "The configuration must be a JSON object, such as {\"model\": \"provider/model\"}.", "The model must look like provider/model.",
+ "AI analysis", "Ask the AI", "Ask again", "{model} is reading the analysis. This can take a minute.", "Only the figures and findings of this analysis are sent to the model, never packet contents.", "{model}, {when}", "Choose a model in Settings, AI first.", "The model gave no answer.", "Refresh", "Model for this analysis", "default", "The choice applies to this request only. The default is set in Settings, AI.",
+ "What is sent to the AI", "The question this answer was given to", "It goes to the model as text: an instruction, then the analysis as JSON. The capture file itself is not sent.", "{n} characters.", "Show the whole question", "Close", "Models users can choose", "Users pick from the checked models on a capture's AI analysis. The default model is always offered.", "This model is not offered. Choose one of the listed models.", "Stop the analysis", "The analysis was stopped."]

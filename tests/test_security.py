@@ -197,7 +197,7 @@ def test_roles(site, samples):
     home = upload(ann, samples / "http_scenarios.pcap")
     aid = home.rsplit("/", 1)[1]
     for c in (ann, val, bob):
-        for path in ("/users", "/preferences", "/audit", "/security"):
+        for path in ("/users", "/preferences", "/audit", "/security", "/ai"):
             assert c.get(path).status_code == 403, path
         for path in ("/users/groups", "/tokens", "/users/ann/delete", "/security/alerts/clear", "/preferences"):
             assert c.post(path).status_code == 403, path
@@ -412,3 +412,59 @@ def test_ldap_address_takes_any_port_or_none():
         assert directory.problem(dict(url=url, user_filter="(uid={0})")) is None, url
     for url in bad:
         assert directory.problem(dict(url=url, user_filter="(uid={0})")) is not None, url
+
+
+# ---- yapay zeka ayarlari: yalnizca yonetici, sifreli saklanir
+
+def _fake_opencode(tmp_path):
+    """Gercek opencode yerine surum ve model listesi yazan kucuk bir betik."""
+    exe = tmp_path / "opencode"
+    exe.write_text("#!/bin/sh\n"
+                   "if [ \"$1\" = \"--version\" ]; then echo '1.2.3'; exit 0; fi\n"
+                   "if [ \"$1\" = \"models\" ]; then printf 'anthropic/claude-x\\nanthropic/claude-y\\nopenai/gpt-z\\nbir uyari satiri\\n'; fi\n")
+    exe.chmod(0o755)
+    return exe
+
+
+def test_ai_settings_check_their_input():
+    from pcap_analyzer.web import ai
+    assert ai.problem("opencode", '{"model": "anthropic/claude-x"}') is None
+    assert ai.problem("opencode", "") is None
+    assert ai.problem("baska", "{}") == "Choose one of the listed AI tools."
+    assert ai.problem("opencode", "{bozuk") == "The configuration is not valid JSON."
+    assert ai.problem("opencode", "[1, 2]").startswith("The configuration must be a JSON object")
+    assert ai.problem("opencode", '{"model": "sadece-model"}') == "The model must look like provider/model."
+    assert ai.by_provider(["a/x", "b/y", "a/z"]) == [("a", ["a/x", "a/z"]), ("b", ["b/y"])]
+
+
+def test_ai_settings_are_managed_by_the_admin_and_kept_encrypted(site, tmp_path, monkeypatch):
+    monkeypatch.setenv("PCAP_ANALYZER_OPENCODE", str(_fake_opencode(tmp_path)))
+    admin, ann = site["admin"], _user(site, "ann")
+    # yonetici olmayan sayfayi acamaz ve kaydedemez
+    assert ann.get("/ai").status_code == 403 and ann.post("/ai", data=dict(config="{}")).status_code == 403
+    page = admin.get("/ai")
+    assert page.status_code == 200 and "opencode 1.2.3 is installed." in page.text
+    assert 'value="anthropic/claude-y"' in page.text and '<optgroup label="openai">' in page.text and "bir uyari" not in page.text
+    # hatali girdi 400 ile aciklanir, yazilan metin kaybolmaz
+    bad = admin.post("/ai", data=dict(tool="opencode", config="{bozuk", model=""))
+    assert bad.status_code == 400 and "not valid JSON" in bad.text and "{bozuk" in bad.text
+    # secilen model yapilandirmanin "model" anahtarina yazilir
+    ok = admin.post("/ai", data=dict(tool="opencode", config='{"provider": {"anthropic": {"options": {"apiKey": "gizli-anahtar-42"}}}}', model="anthropic/claude-y"))
+    assert ok.status_code == 200 and "AI settings saved." in ok.text
+    again = admin.get("/ai").text
+    assert '<option value="anthropic/claude-y" selected>' in again and "gizli-anahtar-42" in again
+    from pcap_analyzer.web import ai
+    assert ai.load(site["settings"])["config"]["model"] == "anthropic/claude-y"
+    # anahtar diskte acik metin olarak durmaz
+    path = site["settings"].workdir / "ai.json"
+    assert vault.is_encrypted(path) and b"gizli-anahtar-42" not in path.read_bytes()
+    assert "ai_settings" in admin.get("/audit").text
+
+
+def test_ai_page_without_opencode(site, monkeypatch, tmp_path):
+    from pcap_analyzer.web import ai
+    monkeypatch.setenv("PCAP_ANALYZER_OPENCODE", str(tmp_path / "yok"))
+    monkeypatch.setattr(ai.shutil, "which", lambda name: None)
+    monkeypatch.setattr(ai.Path, "home", lambda: tmp_path)
+    page = site["admin"].get("/ai").text
+    assert "opencode is not installed on this host" in page and "<optgroup" not in page
